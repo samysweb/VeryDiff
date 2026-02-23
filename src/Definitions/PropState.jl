@@ -22,8 +22,12 @@ function first_pass(PS :: PropState) :: Bool
     return PS.first
 end
 
-function get_layer_inputs(idxs :: Vector{Int64}, PS :: PropState) :: Vector{CachedZonotope}
-    return @view PS.zono_storage.zonotopes[idxs]
+"""
+Retrieves the CachedZonotope references at the given indices from the PropState's ZonotopeStorage.
+Expects that all indices are valid (i.e., positions are no longer filled with `nothing`).
+"""
+function get_zonos_at_pos(idxs :: Vector{Int64}, PS :: PropState) :: Vector{CachedZonotope}
+    return convert(Vector{CachedZonotope}, @view PS.zono_storage.zonotopes[idxs])
 end
 
 function get_zonotope(Z :: CachedZonotope) :: DiffZonotope
@@ -179,13 +183,8 @@ function prepare_prop_state!(PS :: PropState, task :: VerificationTask)
     PS.task_bounds = task.task_bounds
 end
 
-function has_layer(PS :: PropState, layer :: DiffLayer) :: Bool
-    return length(PS.zono_storage.zonotopes) >= layer.layer_idx
-end
-
-function get_layer(PS :: PropState, layer :: DiffLayer) :: CachedZonotope
-    @assert has_layer(PS, layer) "Layer $(layer.layer_idx) not initialized in PropState!"
-    return PS.zono_storage.zonotopes[layer.layer_idx]
+function zonos_initialized(PS :: PropState, output_positions :: Vector{Int64}) :: Bool
+    return length(PS.zono_storage) >= maximum(output_positions) && all(!isnothing(PS.zono_storage.zonotopes[pos]) for pos in output_positions)
 end
 
 function get_free_generator_id!(PS :: PropState) :: Int64

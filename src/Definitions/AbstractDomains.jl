@@ -58,7 +58,19 @@ mutable struct CachedZonotope
 end
 
 struct ZonotopeStorage
-    zonotopes :: Vector{CachedZonotope}
+    zonotopes :: Vector{Union{Nothing,CachedZonotope}}
+end
+
+function length(zs :: ZonotopeStorage) :: Int64
+    return length(zs.zonotopes)
+end
+
+function resize_zonotope_storage!(zs :: ZonotopeStorage, new_size :: Int64)
+    current_size = length(zs.zonotopes)
+    @assert new_size > current_size
+    for _ in 1:(new_size - current_size)
+        push!(zs.zonotopes, nothing)
+    end
 end
 
 # WARNING: This method is dangerous! We are generating Matrix pointers to sub-matrices of existing matrices.

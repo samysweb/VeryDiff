@@ -1,11 +1,14 @@
-import VNNLib.NNLoader.Network
-import VNNLib.NNLoader.Dense
-import VNNLib.NNLoader.ReLU
-
-# TODO: ReLU, ZeroDense layers
-
-function propagate_layer!(ZoutRef :: CachedZonotope, Ls :: DiffLayer{Dense,Dense,Dense}, inputs :: Vector{DiffZonotope}; bounds_cache :: Union{Nothing,BoundsCache}=nothing)
+function propagate_layer!(
+    ZoutRefVec :: Vector{CachedZonotope},
+    Ls :: DiffLayer{
+        ONNXLinear{S1},
+        ONNXLinear{S2},
+        ONNXLinear{S3}},
+    inputs :: Vector{DiffZonotope};
+    bounds_cache :: Union{Nothing,BoundsCache}=nothing) where {S1, S2, S3}
     @assert length(inputs) == 1 "Dense layer should have exactly one input zonotope"
+    @assert length(ZoutRefVec) == 1 "Dense layer should have exactly one output zonotope"
+    ZoutRef = ZoutRefVec[1]
     # @debug "Propagating DiffDense Layer"
     Zin = inputs[1]
     # Compute differential zonotope dimensions
@@ -27,38 +30,95 @@ function propagate_layer!(ZoutRef :: CachedZonotope, Ls :: DiffLayer{Dense,Dense
     L1 = get_layer1(Ls)
     ∂L = get_diff_layer(Ls)
     L2 = get_layer2(Ls)
+    L1_W = L1.dense.weight
+    ∂L_W = ∂L.dense.weight
+    ∂L_b = ∂L.dense.bias
     if VeryDiff.USE_DIFFZONO[]
         # @debug "IDs of Output Zonotope Generators: $(Zout.∂Z.generator_ids)"
         ∂indices = intersect_indices(Zout.∂Z.generator_ids, Zin.∂Z.generator_ids)
         for (i, g) in zip(∂indices, Zin.∂Z.Gs)
-            mul!(Zout.∂Z.Gs[i], L1.W, g)
+            mul!(Zout.∂Z.Gs[i], L1_W, g)
         end
         indices₂ = intersect_indices(Zout.∂Z.generator_ids, Zin.Z₂.generator_ids)
         for (i, g) in zip(indices₂, Zin.Z₂.Gs)
-            mul!(Zout.∂Z.Gs[i], ∂L.W, g, 1.0, 1.0)
+            mul!(Zout.∂Z.Gs[i], ∂L_W, g, 1.0, 1.0)
         end
         # @assert length(intersect_indices(Zout.∂Z.generator_ids, union(Zin.∂Z.generator_ids, Zin.Z₂.generator_ids))) == length(Zout.∂Z.generator_ids) "Not all generators in ∂Z were processed during Dense propagation!"
-        mul!(Zout.∂Z.c, L1.W, Zin.∂Z.c)
-        mul!(Zout.∂Z.c, ∂L.W, Zin.Z₂.c, 1.0, 1.0)
-        Zout.∂Z.c .+= ∂L.b
+        mul!(Zout.∂Z.c, L1_W, Zin.∂Z.c)
+        mul!(Zout.∂Z.c, ∂L_W, Zin.Z₂.c, 1.0, 1.0)
+        Zout.∂Z.c .+= ∂L_b
     end
     propagate_layer!(Zout.Z₁, L1, Zin.Z₁)
     propagate_layer!(Zout.Z₂, L2, Zin.Z₂)
 end
 
-function propagate_layer!(ZoutRef :: CachedZonotope, Ls :: DiffLayer{Dense,ZeroDense,Dense}, inputs :: Vector{DiffZonotope}; bounds_cache :: Union{Nothing,BoundsCache}=nothing)
+function propagate_layer!(
+    ZoutRefVec :: Vector{CachedZonotope},
+    Ls :: DiffLayer{
+        ONNXAddConst{S1},
+        ONNXAddConst{S2},
+        ONNXAddConst{S3}},
+    inputs :: Vector{DiffZonotope};
+    bounds_cache :: Union{Nothing,BoundsCache}=nothing) where {S1, S2, S3}
     @assert length(inputs) == 1 "Dense layer should have exactly one input zonotope"
+    @assert length(ZoutRefVec) == 1 "Dense layer should have exactly one output zonotope"
+    ZoutRef = ZoutRefVec[1]
+    Zin = inputs[1]
+    i_out = 1
+    ∂g_dims = Int64[]
+    resize!(∂g_dims, length(ZoutRef.zonotope_proto.∂Z.Gs))
+    for i_out in 1:length(∂g_dims)
+        res = attempt_find_index_position(Zin.∂Z.generator_ids, ZoutRef.zonotope_proto.∂Z.generator_ids[i_out])
+        if res > 0
+            ∂g_dims[i_out] = size(Zin.∂Z.Gs[res],2)
+        else
+            res = find_index_position(Zin.Z₂.generator_ids, ZoutRef.zonotope_proto.∂Z.generator_ids[i_out])
+            ∂g_dims[i_out] = size(Zin.Z₂.Gs[res],2)
+        end
+    end
+    Zout = get_zonotope!(ZoutRef, size.(Zin.Z₁.Gs,2), size.(Zin.Z₂.Gs,2), ∂g_dims)
+    L1 = get_layer1(Ls)
+    ∂L = get_diff_layer(Ls)
+    ∂L_b = ∂L.c
+    L2 = get_layer2(Ls)
+    if VeryDiff.USE_DIFFZONO[]
+        # @debug "IDs of Output Zonotope Generators: $(Zout.∂Z.generator_ids)"
+        ∂indices = intersect_indices(Zout.∂Z.generator_ids, Zin.∂Z.generator_ids)
+        for (i, g) in zip(∂indices, Zin.∂Z.Gs)
+            Zout.∂Z.Gs[i] .= g
+        end
+        Zout.∂Z.c .= Zin.∂Z.c .+ ∂L_b
+    end
+    propagate_layer!(Zout.Z₁, L1, Zin.Z₁)
+    propagate_layer!(Zout.Z₂, L2, Zin.Z₂)
+end
+
+function propagate_layer!(
+    ZoutRefVec :: Vector{CachedZonotope},
+    Ls :: DiffLayer{
+        ONNXLinear{S1},
+        ZeroDense{S2},
+        ONNXLinear{S3}},
+    inputs :: Vector{DiffZonotope};
+    bounds_cache :: Union{Nothing,BoundsCache}=nothing) where {S1, S2, S3}
+    @assert length(inputs) == 1 "Dense layer should have exactly one input zonotope"
+    @assert length(ZoutRefVec) == 1 "Dense layer should have exactly one output zonotope"
+    ZoutRef = ZoutRefVec[1]
     Zin = inputs[1]
     Zout = get_zonotope!(ZoutRef, size.(Zin.Z₁.Gs,2), size.(Zin.Z₂.Gs,2), convert(Vector{Int64},size.(Zin.∂Z.Gs,2)))
     L1 = get_layer1(Ls)
     L2 = get_layer2(Ls)
+    L1_W = L1.dense.weight
+    L2_W = L2.dense.weight
+    L1_b = L1.dense.bias
+    L2_b = L2.dense.bias
     if VeryDiff.USE_DIFFZONO[]
         ∂indices = intersect_indices(Zout.∂Z.generator_ids, Zin.∂Z.generator_ids)
         # @assert length(union(Zout.∂Z.generator_ids,Zin.∂Z.generator_ids)) == length(Zout.∂Z.generator_ids) "Not all generators in ∂Z were processed during Dense propagation. Output IDs: $(Zout.∂Z.generator_ids), Processed IDs: $(Zin.∂Z.generator_ids)"
         for (i, g) in zip(∂indices, Zin.∂Z.Gs)
-            mul!(Zout.∂Z.Gs[i], L1.W, g)
+            mul!(Zout.∂Z.Gs[i], L1_W, g)
         end
-        mul!(Zout.∂Z.c, L1.W, Zin.∂Z.c)
+        mul!(Zout.∂Z.c, L1_W, Zin.∂Z.c)
     end
     propagate_layer!(Zout.Z₁, L1, Zin.Z₁)
     propagate_layer!(Zout.Z₂, L2, Zin.Z₂)
@@ -93,8 +153,17 @@ function ∂a(any_any, ∂lower, ∂upper)
         #ifelse.(pos_pos .|| any_pos .|| pos_any, 1.0, 0.0))
 end
 
-function propagate_layer!(ZoutRef :: CachedZonotope, Ls :: DiffLayer{ReLU,ReLU,ReLU}, inputs :: Vector{DiffZonotope}; bounds_cache :: Union{Nothing,BoundsCache}=nothing)
+function propagate_layer!(
+    ZoutRefVec :: Vector{CachedZonotope},
+    Ls :: DiffLayer{
+        ONNXRelu{S1},
+        ONNXRelu{S2},
+        ONNXRelu{S3}},
+    inputs :: Vector{DiffZonotope};
+    bounds_cache :: Union{Nothing,BoundsCache}=nothing) where {S1, S2, S3}
     @assert length(inputs) == 1 "ReLU layer should have exactly one input zonotope"
+    @assert length(ZoutRefVec) == 1 "Dense layer should have exactly one output zonotope"
+    ZoutRef = ZoutRefVec[1]
     Zin = inputs[1]
 
     @assert !isnothing(bounds_cache)
@@ -270,10 +339,4 @@ function propagate_layer!(ZoutRef :: CachedZonotope, Ls :: DiffLayer{ReLU,ReLU,R
                 ifelse.(any_pos, μ.(lower₁,upper₁),
                     ifelse.(pos_any, .-μ.(lower₂,upper₂), 0.0)))
     end
-end
-
-
-function (N::GeminiNetwork)(Z :: DiffZonotope, P :: PropState)
-    #println("Prop network")
-    return foldl((Z,Ls) -> propagate_diff_layer(Ls,Z,P),zip(N.network1.layers,N.diff_network.layers,N.network2.layers),init=Z)
 end

@@ -21,6 +21,9 @@ ThreadPinning = "811555cd-349b-4f26-b7bc-1f208b848042"
 TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 VNNLib = "286915b0-5841-4eea-9013-d818f395ad8c"
 
+[compat]
+VNNLib = "0.3.0"
+
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 

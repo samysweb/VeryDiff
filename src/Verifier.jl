@@ -3,13 +3,13 @@
 @enum VerificationStatus UNKNOWN SAFE UNSAFE
 
 function verify_network(
-    N1 :: Network,
-    N2 :: Network,
+    N1 :: OnnxNet{LayerIdT,NShapeIn, NShapeOut},
+    N2 :: OnnxNet{LayerIdT,NShapeIn, NShapeOut},
     bounds,
     property_check,
     split_heuristic;
     timeout=Inf,
-    init_eps=0.0)
+    init_eps=0.0) where {LayerIdT,NShapeIn,NShapeOut}
     global FIRST_ROUND[] = true
     verification_result = nothing
     # Prepare Zonotope Initialization
@@ -43,7 +43,17 @@ function verify_network(
     end
 
     N = GeminiNetwork(N1,N2)
+
+    N1 = executable_network(N1)
+    N2 = executable_network(N2)
+
     println("Network initialized.")
+    if N.diff_layers[end] isa VeryDiff.Definitions.DiffLayer{VNNLib.OnnxParser.ONNXSoftmax{S},VNNLib.OnnxParser.ONNXSoftmax{S},VNNLib.OnnxParser.ONNXSoftmax{S}} where S
+        pop!(N.diff_layers)
+        @warn "Removed final Softmax layer from differential network for verification."
+        @warn "VeryDiff assumes this is handled by the choice of an appropriate property!"
+    end
+    @assert length(N.inputs) == 1 "VeryDiff currently only supports single input networks."
 
     # Statistics
     total_zonos = 1

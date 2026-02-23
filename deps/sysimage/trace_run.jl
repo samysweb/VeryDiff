@@ -84,6 +84,15 @@ VeryDiff.run_cmd([
     "$sysimage_dir/../../test/examples/specs/sigma_0.1.vnnlib"
 ])
 
+# --top-1-delta 0.999 $sysimage_dir/../../test/examples/nets/2_80-1.onnx $sysimage_dir/../../test/examples/nets/2_80-1-0.1.onnx  $sysimage_dir/../../test/examples/specs/sigma_0.1.vnnlib
+
+VeryDiff.run_cmd([
+    "--top-1-delta", "0.9999",
+    "$sysimage_dir/../../test/examples/nets/2_80-1.onnx",
+    "$sysimage_dir/../../test/examples/nets/2_80-1-0.1.onnx",
+    "$sysimage_dir/../../test/examples/specs/sigma_0.1.vnnlib"
+])
+
 # german_credit-not-norm.onnx german_credit-not-norm.onnx test/examples/specs-new/german-credit-bounds.vnnlib --robustness-delta=0.75 --input-epsilon=4e-2
 VeryDiff.run_cmd([
     "$sysimage_dir/../../test/examples/nets-new/german_credit-not-norm.onnx",

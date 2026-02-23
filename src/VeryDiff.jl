@@ -22,7 +22,6 @@ include("Util/simd_bool.jl")
 include("Debugger/Debugger.jl")
 include("Definitions/Definitions.jl")
 using .Definitions
-include("Util.jl")
 
 include("Transformers/Transformers.jl")
 using .Transformers
