@@ -38,6 +38,10 @@ function parse_commandline(cmd_args)
             help        =   "Verify confidence based robustness with given delta for N2 and symmetric confidence"
             arg_type    =   Float64
             default     =   -Inf64
+        "--robustness-abs-delta"
+            help        =   "Verify robustness with given absolute delta"
+            arg_type    =   Float64
+            default     =   -Inf64
         "--input-epsilon"
             help        =   "Epsilon value for input perturbation in confidence based robustness"
             arg_type    =   Float64
@@ -64,6 +68,7 @@ function run_cmd(args)
     top_1 = parsed_args["top-1"]
     top_1_delta = parsed_args["top-1-delta"]
     robustness_delta = parsed_args["robustness-delta"]
+    robustness_abs_delta = parsed_args["robustness-abs-delta"]
     input_epsilon = parsed_args["input-epsilon"]
     robustness_delta_symmetric = parsed_args["robustness-delta-symmetric"]
 
@@ -79,7 +84,7 @@ function run_cmd(args)
         return 1
     end
     if parsed_args["net2"] == "-"
-        any_robust_delta = (robustness_delta != -Inf64) || (robustness_delta_symmetric != -Inf64)
+        any_robust_delta = (robustness_delta != -Inf64) || (robustness_delta_symmetric != -Inf64) || (robustness_abs_delta != -Inf64)
         @assert any_robust_delta "Cannot use '-' for net2 with confidence-based robustness flags"
         net2 = parsed_args["net1"]
     else
@@ -139,6 +144,16 @@ function run_cmd(args)
         @assert isnothing(property) "Cannot specify both epsilon and robustness delta"
         @assert 0.5 <= robustness_delta < 1.0 "Invalid delta value for robustness; must be in [0.5,1)"
         property = get_top1_property(delta=robustness_delta, naive=parsed_args["naive"])
+        if parsed_args["only-split-diff"]
+            split_heuristic = top1_configure_split_heuristic(2)
+        else
+            split_heuristic = top1_configure_split_heuristic(1)
+        end
+        @assert input_epsilon > 0.0 "Input epsilon must be positive for confidence based robustness verification"
+    end
+    if robustness_abs_delta != -Inf64
+        @assert isnothing(property) "Cannot specify both epsilon and robustness delta"
+        property = get_top1_property(delta_abs=robustness_abs_delta, naive=parsed_args["naive"])
         if parsed_args["only-split-diff"]
             split_heuristic = top1_configure_split_heuristic(2)
         else

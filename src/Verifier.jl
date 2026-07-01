@@ -124,8 +124,8 @@ function worker_function_internal(work_queue, threadid, N,N1,N2,num_threads, pro
         global FIRST_ROUND[] = false
         if !prop_satisfied
             if !isnothing(cex)
-                @assert all(zono_bounds(Zin.Z₁)[:,1] .<= cex[1] .&& cex[1] .<= zono_bounds(Zin.Z₁)[:,2])
                 println("\nFound counterexample: $(cex)")
+                @assert all(zono_bounds(Zin.Z₁)[:,1] .<= cex[1] .&& cex[1] .<= zono_bounds(Zin.Z₁)[:,2])
                 should_terminate = true
                 is_verified = UNSAFE
             elseif !do_not_split

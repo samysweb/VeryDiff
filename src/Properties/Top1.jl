@@ -1,9 +1,13 @@
 const TOP1_FOUND_CONCRETE_DELTA = Ref{Bool}(false)
 
-function get_top1_property(;delta=zero(Float64),naive=false)
+function get_top1_property(;delta=zero(Float64), delta_abs=zero(Float64),naive=false)
     if !iszero(delta)
         @assert 0.5 <= delta && delta <= 1.0
         dist=log(delta/(1-delta))
+    elseif !iszero(delta_abs)
+        @assert iszero(delta) "Cannot specify both delta and delta_abs"
+        @assert delta_abs > 0.0 "delta_abs must be positive"
+        dist=delta_abs
     else
         dist=0.0
     end
@@ -22,15 +26,18 @@ function get_top1_property(;delta=zero(Float64),naive=false)
         argmax_N2 = argmax(res2)
         softmax_N1 = exp.(res1)/sum(exp.(res1))
         if argmax_N1 != argmax_N2
-            if iszero(delta) || softmax_N1[argmax_N1] >= delta
+            second_largest = sort(res1,rev=true)[2]
+            if (iszero(delta) && iszero(delta_abs)) ||
+                    (!iszero(delta) && softmax_N1[argmax_N1] >= delta) ||
+                    (!iszero(delta_abs) && res1[argmax_N1]-second_largest >= dist)
                 println("Found cex")
-                println("N1 Probability: $(softmax_N1[argmax_N1]) >= $delta")
+                println("N1 Probability: $(softmax_N1[argmax_N1]) >= $(max(delta,delta_abs))")
                 return false, (Zin.Z₁.c, (argmax_N1, argmax_N2)), nothing, nothing, 0.0
             else
-                second_largest = sort(res1,rev=true)[2]
-                if !iszero(delta) && res1[argmax_N1]-second_largest >= dist
+                if (!iszero(delta) && res1[argmax_N1]-second_largest >= dist) ||
+                    (!iszero(delta_abs) && res1[argmax_N1]-second_largest >= dist)
                     println("Found spurious cex")
-                    println("N1 Probability: $(softmax_N1[argmax_N1]) < $delta")
+                    println("N1 Probability: $(softmax_N1[argmax_N1]) < $(max(delta,delta_abs))")
                     println("but difference $(res1[argmax_N1]-second_largest) >= $dist (approximate bound)")
                 end
             end
@@ -130,7 +137,7 @@ function get_top1_property(;delta=zero(Float64),naive=false)
 
                 # ...but before we do that:
                 # Check if we found concrete evidence for feasibility of confidence delta
-                if !iszero(delta) && !TOP1_FOUND_CONCRETE_DELTA[]
+                if (!iszero(delta) && !TOP1_FOUND_CONCRETE_DELTA[]) || (!iszero(delta_abs) && !TOP1_FOUND_CONCRETE_DELTA[])
                     input1 = copy(Zin.Z₁.c)
                     for (i, curIdx) in enumerate(in_indices₁)
                         offset_start = variable_offsets[curIdx]
@@ -146,8 +153,9 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                     res1 = N1(input1)
                     argmax_N1 = argmax(res1)
                     softmax_N1 = exp.(res1)/sum(exp.(res1))
-                    if softmax_N1[argmax_N1] >= delta
-                        println("[TOP-1] required confidence ($(softmax_N1[argmax_N1])≥$delta) is feasible for index $argmax_N1")
+                    second_largest = sort(res1,rev=true)[2]
+                    if (!iszero(delta) && softmax_N1[argmax_N1] >= delta) || (!iszero(delta_abs) && res1[argmax_N1]-second_largest >= dist)
+                        println("[TOP-1] required confidence ($(softmax_N1[argmax_N1])≥$(max(delta,delta_abs))) is feasible for index $argmax_N1")
                         TOP1_FOUND_CONCRETE_DELTA[]=true
                     else
                         #println("[TOP-1] did not find required confidence yet.")
@@ -208,7 +216,7 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                         else
                             # Potentially we found a counterexample
                             # -> check that
-                            distance_bound = max(distance_bound, objective_value(model))
+                            distance_bound = max(distance_bound, objective_value(model)-threshold)
                             input1 = copy(Zin.Z₁.c)
                             for (i, curIdx) in enumerate(in_indices₁)
                                 offset_start = variable_offsets[curIdx]
@@ -228,24 +236,27 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                             argmax_N1 = argmax(res1)
                             argmax_N2 = argmax(res2)
                             softmax_N1 = exp.(res1)/sum(exp.(res1))
+                            second_largest = sort(res1,rev=true)[2]
                             if argmax_N1 != argmax_N2
                                 # N1 and N2 indeed differ in their classification for input
                                 # But does N1 have enough confidence?
-                                if iszero(delta) || softmax_N1[argmax_N1] >= delta
+                                if (iszero(delta) && iszero(delta_abs)) ||
+                                        (!iszero(delta) && softmax_N1[argmax_N1] >= delta) ||
+                                        (!iszero(delta_abs) && res1[argmax_N1]-second_largest >= dist)
                                     # N1 has sufficient confidence -> concrete counterexample
                                     println("Found cex")
                                     second_most = sort(softmax_N1,rev=true)[2]
                                     println("N1 ($argmax_N1): $(softmax_N1[argmax_N1]) (vs. $second_most)")
                                     softmax_N2 = exp.(res2)/sum(exp.(res2))
                                     println("N2 ($argmax_N2): $(softmax_N2[argmax_N2])")
-                                    println("N1 Probability: $(softmax_N1[argmax_N1]) >= $delta")
+                                    println("N1 Probability: $(softmax_N1[argmax_N1]) >= $(max(delta,delta_abs))")
                                     return false, (input1, (argmax_N1, argmax_N2)), nothing, nothing, 0.0
                                 else
                                     # N1 does not have enough confidence
                                     second_largest = sort(res1,rev=true)[2]
                                     if !iszero(delta) && res1[argmax_N1]-second_largest >= dist
                                         println("Found spurious cex")
-                                        println("N1 Probability: $(softmax_N1[argmax_N1]) < $delta")
+                                        println("N1 Probability: $(softmax_N1[argmax_N1]) < $(max(delta,delta_abs))")
                                         println("but difference $(res1[argmax_N1]-second_largest) >= $dist (approximate bound)")
                                     end
                                     property_satisfied = false

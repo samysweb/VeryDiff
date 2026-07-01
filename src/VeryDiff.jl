@@ -11,7 +11,7 @@ const NEW_HEURISTIC = Ref{Bool}(true)
 const USE_DIFFZONO = Ref{Bool}(true)
 
 function __init__()
-    BLAS.set_num_threads(1)
+    # BLAS.set_num_threads(1)
 end
 
 #pinthreads(:cores)
