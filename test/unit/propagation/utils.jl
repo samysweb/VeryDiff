@@ -159,7 +159,7 @@ function create_random_layer_mutant(layer :: ONNXAddConst{String}, mutation_type
     if mutation_type == 1
         @debug "Independent AddConst layer"
         # New random constant
-        c_new = 0.1 .* randn(Float64, size(layer.c))
+        c_new = 3 .* randn(Float64, size(layer.c))
         if all(c ≈ 0 for c in c_new)
             c_new[1] = 0.1
         end
