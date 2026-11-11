@@ -92,30 +92,29 @@ using Random
     
     @testset "Sampled Points Within Output Bounds" begin
         input_dim = 10
-        num_layers = rand(5:15)
         num_samples = 20_000
         tolerance = 1e-4
         
-        # Create layer dimensions (same for both networks)
-        layer_dims = [rand(20:100) for _ in 1:(num_layers-1)]
-        push!(layer_dims, 10)  # Output dimension is 10
-        
-        @debug "Creating networks..."
-        # Create networks with same structure
-        N1, N2 = make_dense_pair(input_dim, layer_dims;relu=true)
-        depth = length(layer_dims)
+        for depth in 1:15
+            # Create layer dimensions (same for both networks)
+            layer_dims = [rand(20:100) for _ in 1:depth]
+            push!(layer_dims, 10)  # Output dimension is 10
+            
+            @debug "Creating networks..."
+            # Create networks with same structure
+            N1, N2 = make_dense_pair(input_dim, layer_dims;relu=true)
+            depth = length(layer_dims)
 
-        # Create input bounds [-1, 1]^input_dim
-        low = fill(-1.0, input_dim)
-        high = fill(1.0, input_dim)
-        # Sample points from input space and propagate through both networks
-        input_samples = sample_points_in_hypercube(low, high, num_samples)
+            # Create input bounds [-1, 1]^input_dim
+            low = fill(-1.0, input_dim)
+            high = fill(1.0, input_dim)
+            # Sample points from input space and propagate through both networks
+            input_samples = sample_points_in_hypercube(low, high, num_samples)
 
-        for l in 1:depth
-            @info "Checking up to layer $l / $depth"
-            N1_partial = Network(N1.layers[1:l])
-            N2_partial = Network(N2.layers[1:l])
-            N_gemini = GeminiNetwork(N1_partial, N2_partial)
+            N_gemini = GeminiNetwork(N1, N2)
+
+            N1 = executable_network(N1)
+            N2 = executable_network(N2)
             
             # Create VerificationTask
             verification_task = create_verification_task(low, high)
@@ -147,10 +146,10 @@ using Random
                 @assert Zin2.c .+ Zin2.Gs[1]*x ≈ x atol=1e-8
                 
                 # Propagate through N1
-                y1 = N1_partial(x)
+                y1 = N1(x)
                 
                 # Propagate through N2
-                y2 = N2_partial(x)
+                y2 = N2(x)
 
                 # Now we may have additional constraints so we must check Zonotope containment
                 # Sum up additional generators

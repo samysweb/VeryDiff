@@ -2,6 +2,9 @@ module Transformers
 
 using LinearAlgebra
 
+using VNNLib
+using VNNLib.OnnxParser: ONNXLinear, ONNXRelu, ONNXAddConst
+
 using TimerOutputs
 
 import ..VeryDiff: zono_bounds, @simd_bool_expr

@@ -23,6 +23,7 @@ VNNLib = "286915b0-5841-4eea-9013-d818f395ad8c"
 
 [compat]
 Statistics = "1.11.0"
+VNNLib = "0.3.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

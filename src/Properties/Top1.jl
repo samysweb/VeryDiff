@@ -20,7 +20,8 @@ function get_top1_property(;delta=zero(Float64),naive=false)
         res2 = N2(Zin.Z₂.c)
         argmax_N1 = argmax(res1)
         argmax_N2 = argmax(res2)
-        softmax_N1 = exp.(res1)/sum(exp.(res1))
+        # Output of N1/N2 already has Softmax applied now, so no need to compute here.
+        softmax_N1 = res1
         if argmax_N1 != argmax_N2
             if iszero(delta) || softmax_N1[argmax_N1] >= delta
                 println("Found cex")
@@ -145,7 +146,8 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                     # end
                     res1 = N1(input1)
                     argmax_N1 = argmax(res1)
-                    softmax_N1 = exp.(res1)/sum(exp.(res1))
+                    # Output of N1/N2 already has Softmax applied now, so no need to compute here.
+                    softmax_N1 = res1
                     if softmax_N1[argmax_N1] >= delta
                         println("[TOP-1] required confidence ($(softmax_N1[argmax_N1])≥$delta) is feasible for index $argmax_N1")
                         TOP1_FOUND_CONCRETE_DELTA[]=true
@@ -227,7 +229,8 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                             res2 = N2(input2)
                             argmax_N1 = argmax(res1)
                             argmax_N2 = argmax(res2)
-                            softmax_N1 = exp.(res1)/sum(exp.(res1))
+                            # Output of N1/N2 already has Softmax applied now, so no need to compute here.
+                            softmax_N1 = res1
                             if argmax_N1 != argmax_N2
                                 # N1 and N2 indeed differ in their classification for input
                                 # But does N1 have enough confidence?
@@ -236,7 +239,8 @@ function get_top1_property(;delta=zero(Float64),naive=false)
                                     println("Found cex")
                                     second_most = sort(softmax_N1,rev=true)[2]
                                     println("N1 ($argmax_N1): $(softmax_N1[argmax_N1]) (vs. $second_most)")
-                                    softmax_N2 = exp.(res2)/sum(exp.(res2))
+                                    # Output of N1/N2 already has Softmax applied now, so no need to compute here.
+                                    softmax_N2 = res2
                                     println("N2 ($argmax_N2): $(softmax_N2[argmax_N2])")
                                     println("N1 Probability: $(softmax_N1[argmax_N1]) >= $delta")
                                     return false, (input1, (argmax_N1, argmax_N2)), nothing, nothing, 0.0

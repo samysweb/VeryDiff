@@ -97,29 +97,29 @@ using Random
         num_samples = 20_000
         tolerance = 1e-4
         
-        # Create layer dimensions (same for both networks)
-        layer_dims = [rand(20:100) for _ in 1:(num_layers-1)]
-        push!(layer_dims, 10)  # Output dimension is 10
-        depth = length(layer_dims)
-        
-        # Create networks with same structure and identical weights
-        N1, N2 = make_dense_pair(input_dim, layer_dims; identical=true)
-        
-        # Create input bounds [-1, 1]^input_dim
-        low = fill(-1.0, input_dim)
-        high = fill(1.0, input_dim)
+        for depth in 1:15
+            # Create layer dimensions (same for both networks)
+            layer_dims = [rand(20:100) for _ in 1:depth]
+            push!(layer_dims, 10)  # Output dimension is 10
+            depth = length(layer_dims)
+            
+            # Create networks with same structure and identical weights
+            N1, N2 = make_dense_pair(input_dim, layer_dims; identical=true)
+            
+            # Create input bounds [-1, 1]^input_dim
+            low = fill(-1.0, input_dim)
+            high = fill(1.0, input_dim)
 
-        # Sample points from input space and propagate through both networks
-        # Secondary dimensions share same span as primary
-        sec_low = fill(-execution_difference, input_dim * 2)
-        sec_high = fill(execution_difference, input_dim * 2)
-        input_samples = sample_points_in_hypercube(low, high, num_samples; secondary_low=sec_low, secondary_high=sec_high)
+            # Sample points from input space and propagate through both networks
+            # Secondary dimensions share same span as primary
+            sec_low = fill(-execution_difference, input_dim * 2)
+            sec_high = fill(execution_difference, input_dim * 2)
+            input_samples = sample_points_in_hypercube(low, high, num_samples; secondary_low=sec_low, secondary_high=sec_high)
 
-        for l in 1:depth
-            @info "Checking up to layer $l / $depth"
-            N1_partial = Network(N1.layers[1:l])
-            N2_partial = Network(N2.layers[1:l])
-            N_gemini = GeminiNetwork(N1_partial, N2_partial)
+            N_gemini = GeminiNetwork(N1, N2)
+
+            N1 = executable_network(N1)
+            N2 = executable_network(N2)
         
             # Create VerificationTask with secondary distances to capture zero difference
             verification_task = create_verification_task(low, high; with_secondary=true, secondary_scale=execution_difference)
@@ -162,10 +162,10 @@ using Random
                 @assert Zin2.c .+ Zin2.Gs[1]*prim .+ Zin2.Gs[2]*sec2 ≈ x2 atol=1e-8
                 
                 # Propagate through N1
-                y1 = N1_partial(x1)
+                y1 = N1(x1)
                 
                 # Propagate through N2
-                y2 = N2_partial(x2)
+                y2 = N2(x2)
 
                 Zout = prop_state.zono_storage.zonotopes[end].zonotope
                 @test Zout.Z₁.c .+ Zout.Z₁.Gs[1]*prim .+ Zout.Z₁.Gs[2]*sec1 ≈ y1 atol=1e-8

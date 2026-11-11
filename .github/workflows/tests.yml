@@ -51,7 +51,7 @@ jobs:
       #- name: Build package
       #  uses: julia-actions/julia-buildpkg@v1
       - name: Instantiate Julia Package
-        run: julia --project=. -e 'using Pkg; Pkg.add(url="https://github.com/samysweb/VNNLib.jl", rev="c6bf990"); Pkg.pin("VNNLib"); Pkg.resolve()'
+        run: julia --project=. -e 'using Pkg; Pkg.add(url="https://github.com/samysweb/VNNLib.jl", rev="9327e5c"); Pkg.pin("VNNLib"); Pkg.resolve()'
       - name: Run tests
         uses: julia-actions/julia-runtest@v1
         env:

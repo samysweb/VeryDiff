@@ -1,4 +1,5 @@
 include("utils.jl")
-#include("dense.jl")
-#include("dense_zero_diff.jl")
+include("dense.jl")
+include("dense_zero_diff.jl")
 include("relu.jl")
+include("relu_addConst.jl")
