@@ -1,0 +1,42 @@
+[
+ {
+  "name": "safe_split",
+  "net1": "safe_split/net1.onnx",
+  "net2": "safe_split/net2.onnx",
+  "spec": "safe_split/spec.vnnlib",
+  "epsilon": 0.0225695,
+  "expected": "SAFE"
+ },
+ {
+  "name": "unsafe",
+  "net1": "unsafe/net1.onnx",
+  "net2": "unsafe/net2.onnx",
+  "spec": "unsafe/spec.vnnlib",
+  "epsilon": 0.0345313,
+  "expected": "UNSAFE"
+ },
+ {
+  "name": "safe_hard",
+  "net1": "safe_hard/net1.onnx",
+  "net2": "safe_hard/net2.onnx",
+  "spec": "safe_hard/spec.vnnlib",
+  "epsilon": 0.339949,
+  "expected": "SAFE?"
+ },
+ {
+  "name": "safe_easy",
+  "net1": "safe_easy/net1.onnx",
+  "net2": "safe_easy/net2.onnx",
+  "spec": "safe_easy/spec.vnnlib",
+  "epsilon": 0.0098241,
+  "expected": "SAFE"
+ },
+ {
+  "name": "safe_mid",
+  "net1": "safe_mid/net1.onnx",
+  "net2": "safe_mid/net2.onnx",
+  "spec": "safe_mid/spec.vnnlib",
+  "epsilon": 0.0283326,
+  "expected": "SAFE?"
+ }
+]

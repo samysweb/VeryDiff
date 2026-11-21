@@ -1,0 +1,14 @@
+{
+ "name": "safe_mid",
+ "n_in": 3,
+ "hidden": [
+  16,
+  16
+ ],
+ "n_out": 2,
+ "perturb": 0.02,
+ "prune": 0.1,
+ "sampled_max_diff": 0.02179427064899689,
+ "epsilon": 0.0283326,
+ "expected": "SAFE?"
+}
