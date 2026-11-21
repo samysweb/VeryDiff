@@ -8,6 +8,7 @@ Env:  VDA_WORKDIR        session directory (certificates, sandbox mounts); defau
       VDA_SANDBOX        "0" disables the sandbox tools
       VDA_KERNEL_PROJECT path of agent/julia/VeryDiffAgentKernel (default: next to this package)
       VDA_JULIA, VDA_SYSIMAGE, VDA_CALL_TIMEOUT, VDA_WARMUP, VDA_SANDBOX_IMAGE
+      VDA_FINAL_CERT     if set, the certificate is exported there when the server exits
 """
 from __future__ import annotations
 
@@ -287,6 +288,12 @@ def main():
     try:
         mcp.run("stdio")
     finally:
+        final = os.environ.get("VDA_FINAL_CERT")
+        if final and _state["kernel"] and _state["session"]:
+            try:  # harness fallback: always leave a certificate behind
+                _state["kernel"].call("export_certificate", {"path": str(Path(final).resolve())}, timeout=300)
+            except Exception:
+                pass
         if _state["kernel"]:
             _state["kernel"].close()
         if _state["sandbox"]:
