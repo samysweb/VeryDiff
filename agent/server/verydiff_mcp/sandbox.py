@@ -64,7 +64,8 @@ class Sandbox:
             "--network", "none",
             "--cpus", self.cpus, "--memory", self.memory, "--pids-limit", str(self.pids),
             "--user", "1000:1000", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-            "--read-only", "--tmpfs", "/tmp:rw,size=512m", "--tmpfs", "/home/agent:rw,size=256m",
+            "--read-only", "--tmpfs", "/tmp:rw,size=512m", "--tmpfs", "/home/agent:rw,size=256m,uid=1000,gid=1000",
+            "-e", "JULIA_DEPOT_PATH=/tmp/julia-depot:/opt/julia-depot",
             "-v", f"{self.nets}:/nets:ro",
             "-v", f"{self.exports}:/exports:ro",
             "-v", f"{self.scratch}:/scratch:rw",
@@ -99,7 +100,7 @@ class Sandbox:
         timeout_s = max(1, min(int(timeout_s), 3600))
         try:
             r = subprocess.run([self.docker, "exec", self.name, "timeout", "-k", "5", str(timeout_s),
-                                "bash", "-lc", cmd], capture_output=True, text=True, timeout=timeout_s + 30)
+                                "bash", "-c", cmd], capture_output=True, text=True, timeout=timeout_s + 30)
             code, out, err = r.returncode, r.stdout, r.stderr
         except subprocess.TimeoutExpired as e:
             code, out, err = 124, (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or ""), "host-side timeout"

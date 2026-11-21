@@ -119,10 +119,14 @@ def check(node: int, rationale: str = "") -> Any:
 
 
 @mcp.tool()
-def split(node: int, dim: int, cut: float | None = None, cuts: list[float] | None = None, rationale: str = "") -> Any:
+def split(node: int, dim: int, cut: float | None = None, cuts: list[float] | None = None, dim_block: str = "primary",
+          rationale: str = "") -> Any:
     """Split an open leaf along input dimension `dim` (1-based) at `cut` (default midpoint; must satisfy lo<cut<hi),
-    or k-way at increasing `cuts`. Children exactly partition the parent. Only input (primary) splits in this MVP."""
-    return _call("split", node=int(node), dim=int(dim), cut=cut, cuts=cuts, rationale=_rat(rationale))
+    or k-way at increasing `cuts`. Children exactly partition the parent. dim_block: primary (input box);
+    sec1/sec2 (differential perturbation dims) are reserved for robustness properties and rejected for ε."""
+    if dim_block not in ("primary", "sec1", "sec2"):
+        return {"error": "precondition", "message": "dim_block must be primary|sec1|sec2"}
+    return _call("split", node=int(node), dim=int(dim), cut=cut, cuts=cuts, dim_block=dim_block, rationale=_rat(rationale))
 
 
 @mcp.tool()

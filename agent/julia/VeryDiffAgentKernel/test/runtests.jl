@@ -278,6 +278,8 @@ end
         Dict("id" => 3, "method" => "check", "params" => Dict("node" => 1, "rationale" => "root")),
         Dict("id" => 4, "method" => "split", "params" => Dict("node" => 1, "dim" => 1)),
         Dict("id" => 5, "method" => "nope"),
+        Dict("id" => 8, "method" => "read_weights", "params" => Dict("layer" => 1, "which" => "diff")),
+        Dict("id" => 9, "method" => "split", "params" => Dict("node" => 1, "dim" => 1, "dim_block" => "sec1")),
         Dict("id" => 6, "method" => "session_status"),
         Dict("id" => 7, "method" => "shutdown"),
     ]
@@ -297,6 +299,8 @@ end
     @test byid[4]["error"]["type"] == "precondition"     # node 1 is closed, not an open leaf
     @test byid[5]["error"]["type"] == "bad_request"
     @test byid[6]["result"]["verdict"] == "SAFE"
+    @test haskey(byid[8]["result"], "diff_summary")
+    @test haskey(byid[9], "error")
     @test byid[7]["result"]["bye"] == true
 end
 end # outer
