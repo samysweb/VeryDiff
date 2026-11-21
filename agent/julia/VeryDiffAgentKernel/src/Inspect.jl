@@ -293,3 +293,46 @@ function export_data(S::Session, what::AbstractString, node_ids, path::AbstractS
     end
     return Dict("path" => path, "bytes" => filesize(path))
 end
+
+# ------------------------------------------------------------- weights (read-only, "weights as text")
+"""Weights of one affine layer for net1, net2 or their difference (net1 − net2), plus a structural
+summary of the difference (where it lives: nonzero rows/cols, norms, leading singular values)."""
+function read_weights(S::Session, layer_idx::Int; which::AbstractString="diff", rows=nothing, cols=nothing,
+                      max_entries::Int=400, digits::Int=4)
+    L = layer_by_idx(S, layer_idx)
+    l1, l2 = L.layer1, L.layer2
+    if hasproperty(l1, :dense)
+        W1, b1, W2, b2 = l1.dense.weight, l1.dense.bias, l2.dense.weight, l2.dense.bias
+    elseif hasproperty(l1, :c)
+        W1 = W2 = nothing; b1, b2 = l1.c, l2.c
+    else
+        kerr("precondition", "layer $layer_idx ($(nameof(typeof(l1)))) has no weights")
+    end
+    pick(a, b) = which == "net1" ? a : which == "net2" ? b : which == "diff" ? (isnothing(a) ? nothing : a .- b) :
+                 kerr("precondition", "which must be net1|net2|diff")
+    W = pick(W1, W2); b = pick(b1, b2)
+    d = Dict{String,Any}("layer" => layer_idx, "type" => string(nameof(typeof(l1))), "which" => which)
+    if !isnothing(W1)
+        ΔW = W1 .- W2; Δb = b1 .- b2
+        sv = svdvals(Matrix(ΔW))
+        d["shape"] = collect(size(W1))
+        d["diff_summary"] = Dict("frobenius" => r6(norm(ΔW)), "rel_frobenius" => r6(norm(ΔW) / max(norm(W1), eps())),
+            "nonzero_entries" => count(!iszero, ΔW), "nonzero_rows" => findall(r -> any(!iszero, r), collect(eachrow(ΔW)))[1:min(end, 64)],
+            "n_nonzero_rows" => count(r -> any(!iszero, r), eachrow(ΔW)), "n_nonzero_cols" => count(c -> any(!iszero, c), eachcol(ΔW)),
+            "top_singular_values" => r6(sv[1:min(5, end)]), "bias_diff_max_abs" => r6(maximum(abs.(Δb))),
+            "row_l1_max" => r6(maximum(sum(abs.(ΔW); dims=2))))
+        R = isnothing(rows) ? (1:size(W, 1)) : rows
+        C = isnothing(cols) ? (1:size(W, 2)) : cols
+        all(r -> 1 <= r <= size(W, 1), R) && all(c -> 1 <= c <= size(W, 2), C) || kerr("precondition", "rows/cols out of range")
+        if length(R) * length(C) <= max_entries
+            d["rows"] = collect(R); d["cols"] = collect(C)
+            d["W"] = [round.(W[r, collect(C)]; digits=digits) for r in R]
+        else
+            d["W"] = "omitted ($(length(R))×$(length(C)) > max_entries=$max_entries); pass rows/cols or use the sandbox"
+        end
+        d["b"] = round.(b[collect(R)]; digits=digits)
+    else
+        d["c"] = round.(b; digits=digits)
+    end
+    return d
+end

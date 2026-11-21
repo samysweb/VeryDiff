@@ -19,7 +19,8 @@ leave behind a certificate that an independent checker accepts.
 
 # Workflow
 
-1. `open_session` (paths and ε are given in the task), then `check` the root.
+1. `open_session` (paths and ε are given in the task), then `check` the root. Early on, `list_layers`
+   and `read_weights(..., which="diff")` per affine layer to see where the two networks differ.
 2. If it does not close, look at the worst open leaves (`list_open_leaves`, `get_node`,
    `output_bounds`, `split_scores`, `inspect_layer`).
 3. Use `auto_expand` **with budgets** (e.g. 200–2000 nodes, 10–60 s) for micro-splitting. Prefer
@@ -37,16 +38,29 @@ leave behind a certificate that an independent checker accepts.
 6. Before finishing: prove or retract every lemma, check `session_status`, and call
    `export_certificate` (with the path given in the task, if any).
 
-# Deriving lemmas: reason about the weights, not just samples
+# Deriving lemmas: read the weights like a program
 
-Sampling gives you a *guess* at a bound (and possible refutations); it rarely tells you *why* a
-bound holds or which bound will close the proof. Prefer to derive lemmas from the structure of the
-two networks, then let the kernel prove them.
+Treat the two networks as two versions of the same program and the proof as a code review of the
+diff: *where does the difference live, what does it compute, and why can it never push the
+outputs more than ε apart?* A lemma is the written-down answer to that question at one layer, and
+the kernel then checks it. Sampling gives you a *guess* at a bound and early refutations; it rarely
+tells you *why* a bound holds or which bound will close the proof. Use it to sanity-check
+conclusions you reached by reading weights and zonotopes, not as the main source of lemmas.
 
-Sources (all in the sandbox):
-- Weights: `/nets/net1.onnx`, `/nets/net2.onnx` (load with `onnx` + `numpy_helper`; layer `k` of
-  `list_layers` maps to ONNX tensors via `input_tensor`). Compute the difference ΔW = W1 − W2,
-  Δb = b1 − b2 per layer.
+Reading the weights natively:
+- `read_weights(layer, which="diff")` returns ΔW = W1 − W2 (and Δb for bias layers) with a summary of
+  where the difference lives: nonzero rows/columns, norms, top singular values. `which="net1"` /
+  `"net2"` give the weights themselves. Small layers fit in the chat completely; read them and
+  reason directly.
+- First, localise the difference: which layers changed? Is the change sparse (pruned weights, a few
+  rows), low-rank (one or two directions), or diffuse noise? Which neurons does it reach, and with
+  what sign?
+- Then, interpret neurons as you would read code: what each hidden unit detects over the input box
+  (its weight row against the box gives its sign/phase pattern), which units are always on or off,
+  and which units the changed weights feed. Multiply weight matrices through stable-phase units to get
+  effective linear maps from inputs (or from a changed direction) to later layers and the outputs.
+- Bulk work goes to the sandbox: `/nets/net1.onnx`, `/nets/net2.onnx` (load with `onnx` +
+  `numpy_helper`; layer `k` of `list_layers` maps to ONNX tensors via `input_tensor`).
 - Propagated zonotopes: `export_to_sandbox(what="generators", node_ids=[...])` (centre + generator
   matrices for ∂, N1, N2 and the input map) and `what="bounds"` (per-layer bounds of ∂, N1, N2).
   `inspect_layer(..., detail="generators_topk")` shows which input/ReLU generators dominate a neuron.
@@ -68,6 +82,12 @@ High-level reasoning patterns that yield lemmas:
 - **Generator attribution.** In the exported ∂ zonotope, identify generators (input dims or
   relaxation terms of specific ReLUs) that dominate the output distance bound; a lemma that removes
   a large relaxation term, or a split along the dominating input dim, is what closes leaves.
+
+Aim for high-level arguments that explain the proof, e.g. "the only change is a pruned
+row in layer 4; it reaches the output only through units 3 and 7, which are inactive on x₁ < 0.2,
+so ∂ at layer 6 is bounded by the incoming difference times ‖W‖ restricted to those rows". Such an
+argument usually tells you *both* the lemma (bounds at the layer where the argument is tight) and the
+split (the phase boundary that makes it true) that close the proof.
 
 Workflow: derive a candidate bound analytically (or by a small LP/interval computation in numpy over
 the exported zonotope), sanity-check it by sampling (to catch mistakes and get refutations early),
