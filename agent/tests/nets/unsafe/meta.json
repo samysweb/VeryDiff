@@ -1,0 +1,14 @@
+{
+ "name": "unsafe",
+ "n_in": 3,
+ "hidden": [
+  16,
+  16
+ ],
+ "n_out": 2,
+ "perturb": 0.05,
+ "prune": 0.0,
+ "sampled_max_diff": 0.06906266554912727,
+ "epsilon": 0.0345313,
+ "expected": "UNSAFE"
+}

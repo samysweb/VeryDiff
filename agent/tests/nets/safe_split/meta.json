@@ -1,0 +1,14 @@
+{
+ "name": "safe_split",
+ "n_in": 2,
+ "hidden": [
+  8,
+  8
+ ],
+ "n_out": 2,
+ "perturb": 0.02,
+ "prune": 0.0,
+ "sampled_max_diff": 0.015046308481485901,
+ "epsilon": 0.0225695,
+ "expected": "SAFE"
+}
