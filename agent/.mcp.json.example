@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "verydiff": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["-m", "verydiff_mcp.server"],
+      "env": {
+        "PYTHONPATH": "/ABSOLUTE/PATH/TO/VeryDiff/agent/server",
+        "VDA_WORKDIR": "/ABSOLUTE/PATH/TO/vda_session",
+        "VERYDIFF_NO_GUROBI": "1",
+        "VDA_SANDBOX": "1"
+      }
+    }
+  }
+}
