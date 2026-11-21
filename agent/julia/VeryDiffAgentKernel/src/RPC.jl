@@ -20,7 +20,7 @@ function warmup()
     r = introduce_lemma!(S, leaf, k, [1], [-10.0], [10.0])
     prove_lemma!(S, r["lemma"]; max_nodes=2)
     check!(S, r["child"])
-    session_status(S); list_layers(S); get_node(S, 1); output_bounds(S, leaf); split_scores(S, leaf)
+    session_status(S); list_layers(S); read_weights(S, 1); get_node(S, 1); output_bounds(S, leaf); split_scores(S, leaf)
     inspect_layer(S, leaf, k; detail="generators_topk", neurons=[1]); cache_bounds(S, leaf, k)
     eval_point(S, (S.root_box.lo .+ S.root_box.hi) ./ 2)
     sanitize(certificate(S))
@@ -71,6 +71,9 @@ const METHODS = Dict{String,Function}(
         r = eval_point(current(), fvec(p["x"]); hidden=Bool(opt(p, "hidden", false)))
         Dict(k => (v isa AbstractVector{<:Real} ? r6(v) : v isa Real ? r6(v) : v) for (k, v) in r)
     end,
+    "read_weights" => p -> read_weights(current(), Int(p["layer"]); which=opt(p, "which", "diff"),
+                           rows=ivec(get(p, "rows", nothing)), cols=ivec(get(p, "cols", nothing)),
+                           max_entries=Int(opt(p, "max_entries", 400)), digits=Int(opt(p, "digits", 4))),
     "export_data" => p -> export_data(current(), String(p["what"]), get(p, "node_ids", nothing), String(p["path"])),
 )
 

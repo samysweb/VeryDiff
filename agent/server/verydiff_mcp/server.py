@@ -243,6 +243,15 @@ def cache_bounds(node: int, relu_layer: int, neurons: list[int] | None = None) -
 
 
 @mcp.tool()
+def read_weights(layer: int, which: str = "diff", rows: list[int] | None = None, cols: list[int] | None = None,
+                 max_entries: int = 400, digits: int = 4) -> Any:
+    """Read an affine layer's weights as text: which = net1 | net2 | diff (net1 − net2). Always includes a summary
+    of where the difference lives (nonzero rows/cols, norms, top singular values). Select rows/cols for large layers."""
+    return _call("read_weights", layer=int(layer), which=which, rows=rows, cols=cols,
+                 max_entries=int(max(1, min(max_entries, 2000))), digits=int(max(1, min(digits, 17))))
+
+
+@mcp.tool()
 def eval_point(x: list[float], hidden: bool = False) -> Any:
     """Concretely evaluate both networks at x (outputs, distance; hidden=True adds ReLU pre-activations)."""
     return _call("eval_point", x=[float(v) for v in x], hidden=bool(hidden))
