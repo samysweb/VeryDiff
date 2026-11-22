@@ -46,3 +46,7 @@
   plain VeryDiff 1483 / 1483 (unchanged); chain 3–12: main 1487 + lemmas 594 = 2081 nodes / 2082 checks;
   chain 3–18: root bound 1537 → 4.4, main 515 + lemmas 5682 = 6197 nodes / 6198 checks (before the change:
   main 963). Checker ACCEPT; soundness fuzz (5.1 M points, incl. phase-lemma bounds): 0 violations.
+* ACAS prop_16, Opus, `min-cost` objective, after the `src/` change (sandbox image rebuilt): SAFE, 1483 nodes /
+  1484 checks, checker ACCEPT, 25 tool calls, 16.7 min, SDK-reported $0.93. Opus identified the key unit
+  (pruned unit 49 of layer 5, off in net1 by a margin of only 0.6): seeding it would cut the main tree to ≈985,
+  but proving it was estimated at ≈2405 nodes in the sandbox, so it used plain best-first splitting.
