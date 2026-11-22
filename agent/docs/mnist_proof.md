@@ -3,7 +3,7 @@
 Property: for every input x in the VNNLIB box, max_i |N1(x)_i − N2(x)_i| ≤ 1 (ε-equivalence, outputs before
 the removed Softmax). The box fixes 769 of the 784 pixels; 15 pixels are free in [0, 1]. Instance files come from
 verydiff-experiments (`mnist-prune`); the instance description is in the experiments branch
-(`agent/experiments/mnist68/instance.json`).
+(`agent/experiments/instances/mnist68/`).
 
 ## Variants
 
@@ -110,4 +110,4 @@ VERYDIFF_NO_GUROBI=1 julia --project=. ../../checker/check_certificate.jl mnist6
 ```
 
 `LP_RELAX=0` reproduces the 24,796-propagation variant. `INST` must contain `net1.onnx`, `net2.onnx`,
-`spec.vnnlib` (see the experiments branch for how they were extracted from verydiff-experiments).
+`spec.vnnlib` (the experiments branch has them under `agent/experiments/instances/mnist68/`).
