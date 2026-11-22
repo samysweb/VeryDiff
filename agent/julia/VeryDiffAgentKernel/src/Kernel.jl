@@ -14,16 +14,57 @@ struct PropResult
     nonfinite::Bool                   # NaN/Inf in Zout bounds or in any used cache
     layers_done::Vector{Int}
     stop::Union{Nothing,Int}
+    infeasible::Union{Nothing,Dict{String,Any}}   # witness that the node's concrete set is empty (propagation stopped)
 end
 
-"""Group the statements of in-scope lemmas by ReLU layer."""
-function seeds_for(S::Session, lemma_ids::Vector{Int})
+"""Group the statements of in-scope lemmas and of the node's case-split constraints by ReLU layer."""
+function seeds_for(S::Session, lemma_ids::Vector{Int}, constraints::Vector{LemmaStatement}=LemmaStatement[])
     seeds = Dict{Int,Vector{LemmaStatement}}()
     for L in lemma_ids
         st = getlemma(S, L).stmt
         push!(get!(seeds, st.relu_layer, LemmaStatement[]), st)
     end
+    for st in constraints
+        push!(get!(seeds, st.relu_layer, LemmaStatement[]), st)
+    end
     return seeds
+end
+
+"""Intersect the cache with the fresh zonotope bounds of the ReLU input (exactly what VeryDiff's ReLU transformer
+does itself; doing it here first lets the kernel tighten and test for emptiness before the transformer runs)."""
+function intersect_fresh!(bc::BoundsCache, Zi)
+    b1 = zono_bounds(Zi.Z₁); b2 = zono_bounds(Zi.Z₂); bd = zono_bounds(Zi.∂Z)
+    if !bc.initialized
+        bc.lower₁ = b1[:, 1]; bc.upper₁ = b1[:, 2]; bc.lower₂ = b2[:, 1]; bc.upper₂ = b2[:, 2]
+        bc.∂lower = bd[:, 1]; bc.∂upper = bd[:, 2]; bc.initialized = true
+    else
+        bc.lower₁ .= max.(bc.lower₁, b1[:, 1]); bc.upper₁ .= min.(bc.upper₁, b1[:, 2])
+        bc.lower₂ .= max.(bc.lower₂, b2[:, 1]); bc.upper₂ .= min.(bc.upper₂, b2[:, 2])
+        bc.∂lower .= max.(bc.∂lower, bd[:, 1]); bc.∂upper .= min.(bc.∂upper, bd[:, 2])
+    end
+end
+
+"""Consistency tightening with z1 = z2 + d (one round, rounded outward)."""
+function csb_tighten!(bc::BoundsCache)
+    l1, u1, l2, u2, dl, du = bc.lower₁, bc.upper₁, bc.lower₂, bc.upper₂, bc.∂lower, bc.∂upper
+    l1 .= max.(l1, prevfloat.(l2 .+ dl)); u1 .= min.(u1, nextfloat.(u2 .+ du))
+    l2 .= max.(l2, prevfloat.(l1 .- du)); u2 .= min.(u2, nextfloat.(u1 .- dl))
+    dl .= max.(dl, prevfloat.(l1 .- u2)); du .= min.(du, nextfloat.(u1 .- l2))
+end
+
+const INFEASIBLE_RTOL = 1e-9
+"""First (var, neuron, gap) with lower − upper > tol·(1 + max(|lower|, |upper|)), else nothing."""
+function infeasible_entry(bc::BoundsCache)
+    for (v, lo, hi) in (("z1", bc.lower₁, bc.upper₁), ("z2", bc.lower₂, bc.upper₂), ("d", bc.∂lower, bc.∂upper))
+        for j in eachindex(lo)
+            l, u = lo[j], hi[j]
+            (isfinite(l) && isfinite(u)) || continue
+            if l - u > INFEASIBLE_RTOL * (1 + max(abs(l), abs(u)))
+                return (v, j, l - u)
+            end
+        end
+    end
+    return nothing
 end
 
 """Seed `bc` (cache of a ReLU layer with input width `n`) with lemma bounds.
@@ -61,7 +102,8 @@ propagate_seeded!(N, P, seeds, stop) — copy of `VeryDiff.Transformers.propagat
 (1) seeds ReLU bounds caches from in-scope lemmas before propagating that layer and
 (2) optionally stops *before* layer `stop` (prefix propagation for lemma obligations).
 """
-function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatement}}, stop::Union{Nothing,Int})
+function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatement}}, stop::Union{Nothing,Int};
+                           csb::Bool=false, infeasible::Ref{Any}=Ref{Any}(nothing))
     max_io_id = maximum(max(maximum(l.inputs), maximum(l.outputs)) for l in get_layers(N))
     if max_io_id > length(P.zono_storage.zonotopes)
         resize_zonotope_storage!(P.zono_storage, max_io_id)
@@ -90,6 +132,15 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
             diff_layer.layer1 isa ONNXRelu || kerr("lemma", "lemma layer $(diff_layer.layer_idx) is not a ReLU layer")
             apply_seeds!(bounds_cache, length(input_zonotopes[1].Z₁.c), seeds[diff_layer.layer_idx])
         end
+        if diff_layer.layer1 isa ONNXRelu
+            intersect_fresh!(bounds_cache, input_zonotopes[1])
+            csb && csb_tighten!(bounds_cache)
+            e = infeasible_entry(bounds_cache)
+            if !isnothing(e)
+                infeasible[] = Dict{String,Any}("layer" => diff_layer.layer_idx, "var" => e[1], "neuron" => e[2], "gap" => e[3])
+                break
+            end
+        end
         propagate_layer!(outputs, diff_layer, input_zonotopes; bounds_cache=bounds_cache)
         push!(done, diff_layer.layer_idx)
     end
@@ -98,15 +149,21 @@ end
 
 """Run one propagation of `box` from (a deepcopy of) `cache_in` with the given lemma seeds."""
 function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::Vector{Int},
-                         stop::Union{Nothing,Int}; verification_status=nothing)
+                         stop::Union{Nothing,Int}; verification_status=nothing,
+                         constraints::Vector{LemmaStatement}=LemmaStatement[])
     cache = deepcopy(cache_in)
     task = to_task(box, S.active_dims, cache; verification_status=verification_status)
     ps = PropState(true)
     prepare_prop_state!(ps, task)
     ps.task_bounds === cache || kerr("internal", "prop state does not use the owned cache")
     Zin = ps.zono_storage.zonotopes[1].zonotope
-    done = propagate_seeded!(S.N, ps, seeds_for(S, lemma_ids), stop)
+    infeas = Ref{Any}(nothing)
+    done = propagate_seeded!(S.N, ps, seeds_for(S, lemma_ids, constraints), stop; csb=S.csb, infeasible=infeas)
     S.n_propagations += 1
+    if !isnothing(infeas[])
+        inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]
+        return PropResult(ps, task, Zin, nothing, cache, sort(inconsistent), false, done, stop, infeas[])
+    end
     if isnothing(stop)
         Zout = ps.zono_storage.zonotopes[get_outputs(get_layers(S.N)[end])[1]].zonotope
     else
@@ -116,7 +173,7 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]
     nonfinite = any(cache_nonfinite, values(cache.bounds_cache)) ||
         any(isnan, zono_bounds(Zout.∂Z)) || any(isnan, zono_bounds(Zout.Z₁)) || any(isnan, zono_bounds(Zout.Z₂))
-    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done, stop)
+    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done, stop, nothing)
 end
 
 layer_by_idx(S::Session, k::Int) = (i = findfirst(l -> l.layer_idx == k, get_layers(S.N));

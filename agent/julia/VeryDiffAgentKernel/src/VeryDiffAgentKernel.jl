@@ -53,7 +53,7 @@ include("Inspect.jl")
 include("Certificate.jl")
 include("RPC.jl")
 
-export Box, open_session, check!, split!, auto_expand!, introduce_lemma!, introduce_phase_lemma!, introduce_relational_lemma!, trial_lemma!, prove_lemma!,
+export Box, open_session, check!, split!, split_relu!, relu_scores, auto_expand!, introduce_lemma!, introduce_phase_lemma!, introduce_relational_lemma!, trial_lemma!, prove_lemma!,
     retract_lemma!, refute_lemma!, prune!, submit_counterexample!, export_certificate,
     session_status, list_layers, list_open_leaves, get_node, inspect_layer, output_bounds,
     split_scores, cache_bounds, eval_point, is_closed, session_verdict, serve

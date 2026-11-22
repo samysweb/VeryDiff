@@ -180,8 +180,20 @@ function seed!(bc::BoundsCache, n::Int, seeds::Vector{Seed})
     end
 end
 
-"""Propagate; returns (Zin, Zout_or_stop_input, cache, ok_guards)."""
-function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vector{Seed}}, stop)
+"""Empty-interval test (independent re-implementation of the kernel's rule)."""
+function empty_somewhere(bc::BoundsCache)
+    for (lo, hi) in ((bc.lower₁, bc.upper₁), (bc.lower₂, bc.upper₂), (bc.∂lower, bc.∂upper))
+        for j in eachindex(lo)
+            l, u = lo[j], hi[j]
+            (isfinite(l) && isfinite(u)) || continue
+            l - u > 1e-9 * (1 + max(abs(l), abs(u))) && return true
+        end
+    end
+    return false
+end
+
+"""Propagate; returns (Zin, Zout_or_stop_input, cache, ok_guards, P, infeasible)."""
+function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vector{Seed}}, stop; csb::Bool=false)
     tb = deepcopy(cache_in)
     task = task_for(lo, hi, active, tb)
     P = PropState(true)
@@ -205,6 +217,24 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
             need(L.layer1 isa ONNXRelu, "lemma on non-ReLU layer")
             seed!(bc, length(izs[1].Z₁.c), seeds[L.layer_idx])
         end
+        if L.layer1 isa ONNXRelu
+            Zi = izs[1]
+            b1 = zono_bounds(Zi.Z₁); b2 = zono_bounds(Zi.Z₂); bd = zono_bounds(Zi.∂Z)
+            if !bc.initialized
+                bc.lower₁ = b1[:, 1]; bc.upper₁ = b1[:, 2]; bc.lower₂ = b2[:, 1]; bc.upper₂ = b2[:, 2]
+                bc.∂lower = bd[:, 1]; bc.∂upper = bd[:, 2]; bc.initialized = true
+            else
+                bc.lower₁ .= max.(bc.lower₁, b1[:, 1]); bc.upper₁ .= min.(bc.upper₁, b1[:, 2])
+                bc.lower₂ .= max.(bc.lower₂, b2[:, 1]); bc.upper₂ .= min.(bc.upper₂, b2[:, 2])
+                bc.∂lower .= max.(bc.∂lower, bd[:, 1]); bc.∂upper .= min.(bc.∂upper, bd[:, 2])
+            end
+            if csb
+                bc.lower₁ .= max.(bc.lower₁, prevfloat.(bc.lower₂ .+ bc.∂lower)); bc.upper₁ .= min.(bc.upper₁, nextfloat.(bc.upper₂ .+ bc.∂upper))
+                bc.lower₂ .= max.(bc.lower₂, prevfloat.(bc.lower₁ .- bc.∂upper)); bc.upper₂ .= min.(bc.upper₂, nextfloat.(bc.upper₁ .- bc.∂lower))
+                bc.∂lower .= max.(bc.∂lower, prevfloat.(bc.lower₁ .- bc.upper₂)); bc.∂upper .= min.(bc.∂upper, nextfloat.(bc.upper₁ .- bc.lower₂))
+            end
+            empty_somewhere(bc) && return nothing, nothing, tb, false, P, true
+        end
         propagate_layer!(outs, L, izs; bounds_cache=bc)
     end
     isnothing(stop) && (Zout = P.zono_storage.zonotopes[get_outputs(layers[end])[1]].zonotope)
@@ -219,7 +249,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
     for Z in (Zout.∂Z, Zout.Z₁, Zout.Z₂)
         any(isnan, zono_bounds(Z)) && (ok = false)
     end
-    return P.zono_storage.zonotopes[1].zonotope, Zout, tb, ok, P
+    return P.zono_storage.zonotopes[1].zonotope, Zout, tb, ok, P, false
 end
 
 # ---------------------------------------------------------------- the check
@@ -324,7 +354,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
         ch = children[id]
         if n.kind == "s"
             need(length(ch) == 2 && Set(nodes[c].side for c in ch) == Set([1, 2]), "split node $id needs a lower and an upper child")
-            need(n.p["b"] == "primary", "split block $(n.p["b"]) not supported")
+            need(n.p["b"] in ("primary", "relu"), "split block $(n.p["b"]) not supported")
         elseif n.kind == "a"
             need(length(ch) == 1 && nodes[ch[1]].side == 0, "assume node $id needs exactly one child")
             L = Int(n.p["l"])
@@ -342,7 +372,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
     # replay, top-down, per obligation
     region = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
     # lemma chaining: a lemma's proof starts from the cache and lemma scope of its assume node
-    lemma_init = Dict{Int,Tuple{TaskBounds,Vector{Int}}}()
+    lemma_init = Dict{Int,Tuple{TaskBounds,Vector{Int},Vector{Tuple{Int,Seed}}}}()
+    csb = Bool(get(get(C, "options", Dict()), "csb", false))
     obl_of = Dict{Int,Int}()
     verified_leaf = Dict{Int,Bool}()
     region[mains[1].root] = (copy(lo0), copy(hi0))
@@ -351,12 +382,12 @@ function check(cert_path, net1, net2, specf; verbose=false)
     # a lemma obligation's root region equals its scope node's region; process main first, then
     # lemma obligations whose scope node has been reached.
     function replay(o)
-        init = o.kind == "main" ? (TaskBounds(), Int[]) : lemma_init[o.root]
-        stack = [(o.root, deepcopy(init[1]), copy(init[2]))]
+        init = o.kind == "main" ? (TaskBounds(), Int[], Tuple{Int,Seed}[]) : lemma_init[o.root]
+        stack = [(o.root, deepcopy(init[1]), copy(init[2]), copy(init[3]))]
         adapter_stop = o.kind == "main" ? nothing : lemmas[parse(Int, split(o.target, ":")[2])].layer
         lem_self = o.kind == "main" ? nothing : lemmas[parse(Int, split(o.target, ":")[2])]
         while !isempty(stack)
-            id, cache, scope = pop!(stack)
+            id, cache, scope, cons = pop!(stack)
             haskey(obl_of, id) && reject("node $id reached twice")
             obl_of[id] = o.id
             n = nodes[id]
@@ -366,8 +397,20 @@ function check(cert_path, net1, net2, specf; verbose=false)
             for L in scope
                 push!(get!(seeds, lemmas[L].layer, Seed[]), lemmas[L].seed)
             end
-            if n.kind == "c"
-                Zin, Z, _, ok, P = propagate(N, lo, hi, active, cache, seeds, adapter_stop)
+            for (k, sd) in cons
+                push!(get!(seeds, k, Seed[]), sd)
+            end
+            if n.kind == "c" && get(n.p, "inf", false) == true
+                _, _, _, _, _, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
+                verified_leaf[id] = inf
+                verbose && println(stderr, "leaf $id (infeasible): ", inf)
+                continue
+            elseif n.kind == "c"
+                Zin, Z, _, ok, P, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
+                if inf
+                    verified_leaf[id] = false
+                    continue
+                end
                 ev = get(n.p, "lp", nothing)
                 zk_of = k -> begin
                     !isnothing(adapter_stop) && k > adapter_stop && return nothing
@@ -417,9 +460,21 @@ function check(cert_path, net1, net2, specf; verbose=false)
             end
             out_cache = cache
             if n.p["p"] == true
-                _, _, out_cache, _ = propagate(N, lo, hi, active, cache, seeds, adapter_stop)
+                _, _, out_cache, _ = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
             end
-            if n.kind == "s"
+            if n.kind == "s" && n.p["b"] == "relu"
+                k = Int(n.p["k"]); v = String(n.p["v"]); j = Int(n.p["j"]); t = Float64(n.p["c"])
+                need(k in relu, "relu split node $id on non-ReLU layer $k")
+                need(v in ("z1", "z2", "d") && isfinite(t) && j >= 1, "relu split node $id malformed")
+                for ch in children[id]
+                    region[ch] = (copy(lo), copy(hi))
+                    lo_, hi_ = nodes[ch].side == 1 ? (-Inf, t) : (t, Inf)
+                    sd = v == "d"  ? Seed([j], [lo_], [hi_], nothing, nothing, Tuple{String,Int,Float64}[], Inf) :
+                         v == "z1" ? Seed([j], [-Inf], [Inf], ([lo_], [hi_]), nothing, Tuple{String,Int,Float64}[], Inf) :
+                                     Seed([j], [-Inf], [Inf], nothing, ([lo_], [hi_]), Tuple{String,Int,Float64}[], Inf)
+                    push!(stack, (ch, deepcopy(out_cache), copy(scope), vcat(cons, [(k, sd)])))
+                end
+            elseif n.kind == "s"
                 d = Int(n.p["d"]); c = Float64(n.p["c"])
                 need(d in active, "split node $id on inactive dim $d")
                 need(lo[d] < c < hi[d], "split node $id: cut $c not strictly inside ($(lo[d]), $(hi[d]))")
@@ -427,18 +482,18 @@ function check(cert_path, net1, net2, specf; verbose=false)
                     l2 = copy(lo); h2 = copy(hi)
                     nodes[ch].side == 1 ? (h2[d] = c) : (l2[d] = c)
                     region[ch] = (l2, h2)
-                    push!(stack, (ch, deepcopy(out_cache), copy(scope)))
+                    push!(stack, (ch, deepcopy(out_cache), copy(scope), copy(cons)))
                 end
             else # assume
                 L = Int(n.p["l"])
                 ch = children[id][1]
                 region[ch] = (copy(lo), copy(hi))
-                push!(stack, (ch, deepcopy(out_cache), vcat(scope, [L])))
+                push!(stack, (ch, deepcopy(out_cache), vcat(scope, [L]), copy(cons)))
                 # the lemma's proof root region is this node's region
                 lr = obls[lemmas[L].obligation].root
                 region[lr] = (copy(lo), copy(hi))
                 L in scope && reject("lemma $L in scope of its own assume node")
-                lemma_init[lr] = (deepcopy(out_cache), copy(scope))
+                lemma_init[lr] = (deepcopy(out_cache), copy(scope), copy(cons))
             end
         end
     end

@@ -150,15 +150,94 @@ function get_node(S::Session, id::Int)
         "children" => n.children, "lemmas_in_scope" => n.lemmas_in_scope, "last_check" => n.last_check,
         "rationale" => n.rationale, "created_by" => string(n.created_by), "volume" => r6(n.work_share),
         "distance_bound" => r6(n.distance_bound), "has_cache_out" => !isnothing(n.cache_out))
-    n.kind == :split && (d["split"] = Dict("block" => string(n.split_block), "dim" => n.split_dim, "cut" => n.split_cut))
+    n.kind == :split && (d["split"] = n.split_block == :relu ?
+        Dict("block" => "relu", "layer" => n.bsplit[1], "var" => n.bsplit[2], "neuron" => n.bsplit[3], "t" => n.split_cut) :
+        Dict("block" => string(n.split_block), "dim" => n.split_dim, "cut" => n.split_cut))
+    isempty(n.constraints) || (d["constraints"] = constraint_summary.(n.constraints))
     n.kind == :assume && (d["lemma"] = n.lemma)
     n.kind == :closed && (d["evidence"] = n.evidence)
     return d
 end
 
 """Re-propagate node (from its inherited cache, with its in-scope lemma seeds, exactly as `check` would)."""
-inspect_propagation(S::Session, n::Node; stop=nothing) =
-    run_propagation(S, n.region, n.cache_in, n.lemmas_in_scope, stop; verification_status=n.verification_status)
+function inspect_propagation(S::Session, n::Node; stop=nothing)
+    res = run_propagation(S, n.region, n.cache_in, n.lemmas_in_scope, stop; verification_status=n.verification_status,
+                          constraints=n.constraints)
+    isnothing(res.infeasible) || kerr("infeasible", "node $(n.id) is infeasible under its constraints: $(res.infeasible)")
+    return res
+end
+
+constraint_summary(st::LemmaStatement) =
+    !isnothing(st.n1lo) ? "z1[$(st.neurons[1])] in [$(st.n1lo[1]), $(st.n1hi[1])] @ReLU $(st.relu_layer)" :
+    !isnothing(st.n2lo) ? "z2[$(st.neurons[1])] in [$(st.n2lo[1]), $(st.n2hi[1])] @ReLU $(st.relu_layer)" :
+                          "d[$(st.neurons[1])] in [$(st.dlo[1]), $(st.dhi[1])] @ReLU $(st.relu_layer)"
+
+"""
+Generator columns created by each ReLU layer's relaxation, mapped to (layer, var, neuron). VeryDiff appends,
+per ReLU layer, one column per crossing unit to the owned block of Z₁ (crossing in N1), of Z₂ (crossing in N2)
+and of ∂Z (rows any_any | any_pos | pos_any, in row order). Owned blocks only grow by appending, so the column
+index is stable down to the output.
+"""
+function relaxation_columns(S::Session, res::PropResult)
+    cols = Tuple{Int,String,Int,Int,Int}[]   # (layer, var, neuron, block id, column)
+    for k in S.relu_layers
+        k in res.layers_done || continue
+        L = layer_by_idx(S, k)
+        bc = res.cache.bounds_cache[k]
+        Zo = res.ps.zono_storage.zonotopes[get_outputs(L)[1]].zonotope
+        sel = get_selectors([bc.lower₁ bc.upper₁], [bc.lower₂ bc.upper₂], [bc.∂lower bc.∂upper])
+        rows = Dict("z1" => findall((bc.lower₁ .< 0) .& (bc.upper₁ .> 0)),
+                    "z2" => findall((bc.lower₂ .< 0) .& (bc.upper₂ .> 0)),
+                    "d" => findall(sel[8] .| sel[9] .| sel[10]))
+        for (v, Z) in (("z1", Zo.Z₁), ("z2", Zo.Z₂), ("d", Zo.∂Z))
+            isnothing(Z.owned_generators) && continue
+            gid = Z.generator_ids[Z.owned_generators]
+            nc = size(Z.Gs[Z.owned_generators], 2)
+            R = rows[v]
+            length(R) <= nc || kerr("internal", "relaxation column mapping failed at layer $k ($v)")
+            for (i, j) in enumerate(R)
+                push!(cols, (k, v, j, gid, nc - length(R) + i))
+            end
+        end
+    end
+    return cols
+end
+
+"""
+relu_scores: rank unstable units by the output-bound mass of their relaxation generator (how much of the
+output bound on the critical rows comes from that unit's ReLU over-approximation). A large score suggests a
+ReLU phase split (split_relu) on that unit; var d means the differential relaxation (split d at 0 or both
+phases). One propagation.
+"""
+function relu_scores(S::Session, id::Int; top_k::Int=10, rows=nothing)
+    n = getnode(S, id)
+    a = obligation_of(S, n).adapter
+    a isa EpsAdapter || kerr("precondition", "relu_scores supports the main epsilon obligation")
+    res = inspect_propagation(S, n)
+    DZ = res.Zout.∂Z
+    b = zono_bounds(DZ)
+    crit = isnothing(rows) ? findall(vec(maximum(abs.(b); dims=2)) .> a.epsilon) : Int.(collect(rows))
+    isempty(crit) && (crit = [argmax(vec(maximum(abs.(b); dims=2)))])
+    blk = Dict(gid => bi for (bi, gid) in enumerate(collect(DZ.generator_ids)))
+    total = Dict(r => sum(sum(abs, G[r, :]) for G in DZ.Gs) for r in crit)
+    out = Dict{String,Any}[]
+    for (k, v, j, gid, c) in relaxation_columns(S, res)
+        haskey(blk, gid) || continue
+        G = DZ.Gs[blk[gid]]
+        c <= size(G, 2) || continue
+        m = [abs(G[r, c]) for r in crit]
+        bc = res.cache.bounds_cache[k]
+        push!(out, Dict{String,Any}("layer" => k, "var" => v, "neuron" => j, "score" => r6(sum(m)),
+            "max_row_share" => r6(maximum(m[i] / max(total[crit[i]], 1e-300) for i in eachindex(crit))),
+            "z1" => [r6(bc.lower₁[j]), r6(bc.upper₁[j])], "z2" => [r6(bc.lower₂[j]), r6(bc.upper₂[j])],
+            "d" => [r6(bc.∂lower[j]), r6(bc.∂upper[j])]))
+    end
+    sort!(out; by=e -> -e["score"])
+    return Dict("node" => id, "critical_rows" => crit, "epsilon" => a.epsilon,
+        "row_bounds" => Dict(string(r) => [r6(b[r, 1]), r6(b[r, 2])] for r in crit),
+        "row_generator_mass" => Dict(string(r) => r6(total[r]) for r in crit),
+        "n_relaxation_columns" => length(out), "top" => out[1:min(top_k, end)])
+end
 
 function pick_zono(Z, which::AbstractString)
     which == "d" ? Z.∂Z : which == "z1" ? Z.Z₁ : which == "z2" ? Z.Z₂ : kerr("precondition", "which must be d|z1|z2")

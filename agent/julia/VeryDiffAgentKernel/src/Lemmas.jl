@@ -34,14 +34,16 @@ function introduce_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vecto
         # Lemma obligation (lemma chaining): same region; it inherits the lemmas already in scope at `n` and
         # n's bounds cache (which depends only on those lemmas). Non-circular: those lemmas were introduced
         # earlier and their proofs cannot refer to L. L counts as proven only if they are proven as well.
-        root = new_node!(S, 0, 0, 0, n.region, copy(n.lemmas_in_scope), deepcopy(inheritable_cache(n)), 1.0, 0, :agent)
+        root = new_node!(S, 0, 0, 0, n.region, copy(n.lemmas_in_scope), deepcopy(inheritable_cache(n)), 1.0, 0, :agent;
+                         constraints=n.constraints)
         obl = new_obligation!(S, :lemma, root.id, Lid, LemmaBoundsAdapter(stmt))
         root.obligation = obl
         S.lemmas[Lid] = Lemma(Lid, stmt, n.id, obl, false, nothing, rationale)
         # main side: node becomes :assume(L) with one child in which L is in scope
         child = new_node!(S, n.obligation, n.id, 0, n.region, vcat(n.lemmas_in_scope, [Lid]),
                           deepcopy(inheritable_cache(n)), n.work_share, n.depth + 1, :agent;
-                          distance_bound=n.distance_bound, verification_status=n.verification_status)
+                          distance_bound=n.distance_bound, verification_status=n.verification_status,
+                          constraints=n.constraints)
         n.kind = :assume
         n.lemma = Lid
         n.children = [child.id]

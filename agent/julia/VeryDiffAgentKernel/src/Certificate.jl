@@ -5,7 +5,10 @@
 #     side    : 0 = obligation root or assume-child, 1 = lower child [lo,cut], 2 = upper child [cut,hi]
 #     kind    : "s" split   payload {"b": block, "d": dim, "c": cut, "p": propagated?}
 #               "a" assume  payload {"l": lemma, "p": propagated?}
-#               "c" closed  payload {"db": distance_bound}
+#               "s" relu-split payload {"b": "relu", "k": ReLU layer, "v": "z1"|"z2"|"d", "j": neuron, "c": t, "p": ...}
+#                   child side 1 assumes v <= t, side 2 assumes v >= t (same region; constraints are inherited)
+#               "c" closed  payload {"db": distance_bound} (+ "lp": dual evidence, or "inf": true for a node whose
+#                   bounds at some ReLU input are empty under its constraints)
 #               "o" open    payload {}
 #   "p" = the node was propagated (checked) before being expanded, i.e. its children inherit
 #   its post-propagation bounds cache; otherwise they inherit its inherited cache unchanged.
@@ -17,13 +20,17 @@ function cert_nodes(S::Session)
         n = S.nodes[id]
         p = !isnothing(n.cache_out)
         r = [n.region.lo[S.active_dims], n.region.hi[S.active_dims]]
-        if n.kind == :split
+        if n.kind == :split && n.split_block == :relu
+            push!(out, [id, n.parent, n.side, "s", Dict("b" => "relu", "k" => n.bsplit[1], "v" => n.bsplit[2], "j" => n.bsplit[3],
+                                                        "c" => n.split_cut, "p" => p), r])
+        elseif n.kind == :split
             push!(out, [id, n.parent, n.side, "s", Dict("b" => string(n.split_block), "d" => n.split_dim, "c" => n.split_cut, "p" => p), r])
         elseif n.kind == :assume
             push!(out, [id, n.parent, n.side, "a", Dict("l" => n.lemma, "p" => p), r])
         elseif n.kind == :closed
             pl = Dict{String,Any}("db" => encode_float(n.distance_bound))
             !isnothing(n.evidence) && haskey(n.evidence, "lp") && (pl["lp"] = n.evidence["lp"])
+            !isnothing(n.evidence) && get(n.evidence, "check", "") == "infeasible" && (pl["inf"] = true)
             push!(out, [id, n.parent, n.side, "c", pl, r])
         else
             push!(out, [id, n.parent, n.side, "o", Dict(), r])
@@ -56,6 +63,7 @@ function certificate(S::Session)
         "property" => JSON.parse(S.property_canon),
         "files" => Dict("net1" => basename(S.net1_path), "net2" => basename(S.net2_path), "spec" => basename(S.spec_path)),
         "softmax_removed" => S.softmax_removed,
+        "options" => Dict("csb" => S.csb),
         "status" => session_verdict(S),
         "spec_box" => Dict("lo" => S.root_box.lo, "hi" => S.root_box.hi),
         "active_dims" => S.active_dims,
