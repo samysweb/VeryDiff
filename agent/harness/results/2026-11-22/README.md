@@ -69,3 +69,9 @@
   per-neuron bounds are already near the sampled ranges, the looseness is lost correlation between neurons at
   the output (width 9.2 vs 3.8 sampled), which per-neuron interval/phase lemmas cannot express; a one-unit phase
   lemma dry run was still open after 465 nodes. No lemmas used.
+* MNIST mnist_68_local_15 with relational lemmas + LP tightening available: SAFE, 118,691 nodes / 118,693
+  checks (−16 vs VeryDiff), checker ACCEPT, 51 tool calls, 23.6 min, SDK-reported $1.49. Opus localised the
+  difference precisely (only layer-1 unit 45 and layer-2 unit 51 matter; the layer-2 ∂ pre-activations are
+  W1[:,45]·r45, one direction), dry-ran several phase lemmas (cheap to prove, negligible effect) and did not use
+  relational lemmas: ≈0.27 of the 1.187 root bound comes from the independent relaxation terms of ≈20 unstable
+  layer-2 units, which appear at/after the layer a relational lemma could sit on.
