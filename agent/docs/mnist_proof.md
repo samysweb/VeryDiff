@@ -160,8 +160,16 @@ during `auto_expand`). Bands without LP rows were run to completion; with LP row
 | off | on | off | off | 48,016 | 368 s |
 
 * Dual bounds are the most important mechanism after the LP rows (×21 without them).
-* Contraction is not redundant: ×1.4 with LP rows, ×1.9 without. It changes the zonotopes themselves; dual
-  bounds change only the cached bounds.
+* Contraction is not redundant: ×1.4 with LP rows, ×1.9 without. But it does not give tighter bounds: for one row
+  (and for a slab lo ≤ a·ε ≤ hi, whose exact bound is the better of the two single-row duals) the dual bound is
+  exact, and at the root of the band r ≥ 1.05 the caches with and without contraction are equal at layers 3 and
+  6. The difference comes from `ONE_SIDED_DIFF_FALLBACK`: it decides with the *fresh* zonotope bounds which units
+  keep the d-based relaxation. Contraction makes the fresh bounds tighter, so fewer units fall back (layer 3:
+  units 28, 44, 49, 63, 91 with contraction; also 9, 81, 85 without), and for those units the one-sided relaxation
+  is tighter. A fallback rule that compares the two relaxations on the cached bounds alone would make contraction
+  unnecessary (not done yet).
+* Pairwise infeasibility test (`infeasible_rows`, VeryDiff `src`): no change here (124 / 172 / 48,016); bands are
+  single quantities whose emptiness the cache already shows.
 * Bound rows do not help here. The 124 → 122 is noise in the LP multipliers: the checker accepts the K = 10
   certificate also with bound rows off. On plain VeryDiff search they do not help either (ACAS 1483 → 1483; MNIST
   plain search: no node's output bound changes).

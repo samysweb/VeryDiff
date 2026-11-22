@@ -42,7 +42,7 @@ using VeryDiff
 using VeryDiff.Definitions: VerificationTask, PropState, BoundsCache, TaskBounds, get_layers, get_inputs,
     get_outputs, get_zonos_at_pos, first_pass, configure_first_usage!, zonos_initialized,
     prepare_prop_state!, resize_zonotope_storage!, get_zonotope, zono_bounds, sort_network, executable_network
-using VeryDiff.Transformers: init_layer!, propagate_layer!, BoundRow, dual_tighten!, collect_bound_rows!
+using VeryDiff.Transformers: init_layer!, propagate_layer!, BoundRow, dual_tighten!, collect_bound_rows!, infeasible_rows
 
 
 # =====================================================================================================
@@ -476,6 +476,7 @@ function tighten_with_rows!(bc, P, N, Zi, k, constraints::Dict{Int,Vector{Seed}}
     end
     append!(rows, bound_rows)
     isempty(rows) || dual_tighten!(bc, Zi, rows)
+    return rows
 end
 
 
@@ -534,7 +535,9 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
         if L.layer1 isa ONNXRelu
             Zi = input_zonotopes[1]
             intersect_with_zonotope!(bc, Zi)
-            tighten_with_rows!(bc, P, N, Zi, L.layer_idx, constraints, collected)
+            rows = tighten_with_rows!(bc, P, N, Zi, L.layer_idx, constraints, collected)
+            # where split constraints enter: no common solution of one row or of two rows → no concrete input
+            haskey(constraints, L.layer_idx) && !isnothing(infeasible_rows(rows)) && return infeasible()
             (csb || haskey(seeds, L.layer_idx)) && consistency_tighten!(bc)
             has_empty_interval(bc) && return infeasible()
             collect_bound_rows!(collected, bc, Zi, bound_rows...)

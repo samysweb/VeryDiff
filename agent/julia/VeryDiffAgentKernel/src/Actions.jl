@@ -48,7 +48,9 @@ function do_check!(S::Session, n::Node)
         n.evidence = Dict{String,Any}("distance_bound" => -Inf, "check" => "infeasible", "infeasible" => res.infeasible)
         n.last_check = Dict{String,Any}("holds" => true, "distance_bound" => -Inf, "outcome" => "closed",
             "reason" => "infeasible at ReLU layer $(res.infeasible["layer"]): " * (get(res.infeasible, "contraction", false) ?
-                "split constraints have no solution in the noise box" : "empty bounds for $(res.infeasible["var"])[$(res.infeasible["neuron"])]"),
+                "split constraints have no solution in the noise box" : haskey(res.infeasible, "pair") ?
+                "constraint rows $(res.infeasible["pair"]) have no common solution (dual test)" :
+                "empty bounds for $(res.infeasible["var"])[$(res.infeasible["neuron"])]"),
             "seconds" => round(time() - t; digits=4), "inconsistent_layers" => res.inconsistent, "infeasible" => res.infeasible)
         return :closed, res, nothing
     end

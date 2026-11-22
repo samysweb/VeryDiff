@@ -262,6 +262,14 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
             intersect_fresh!(bounds_cache, input_zonotopes[1])
             rows = vcat(constraint_bound_rows(P, N, get(contract, -1, LemmaStatement[]), diff_layer.layer_idx), crows)
             isempty(rows) || dual_tighten!(bounds_cache, input_zonotopes[1], rows)
+            # New split constraints enter at this layer: test the rows for a common solution (one row, pairs).
+            if haskey(contract, diff_layer.layer_idx)
+                pair = infeasible_rows(rows)
+                if !isnothing(pair)
+                    infeasible[] = Dict{String,Any}("layer" => diff_layer.layer_idx, "pair" => collect(pair))
+                    break
+                end
+            end
             # Seeded layers (case splits, lemmas) always get the cross-network tightening, so that a bound on
             # one network's pre-activation also tightens the other one's via d = z1 − z2.
             (csb || haskey(seeds, diff_layer.layer_idx)) && csb_tighten!(bounds_cache)

@@ -83,8 +83,10 @@ all later ReLU layers. The dual bounds and the row selection are VeryDiff's own 
   scope and constraints) and runs VeryDiff's ε check (or, in a lemma obligation, checks the lemma's bounds at the
   stop layer); guards: no NaN, no inconsistent cache.
 * **Infeasible:** `{"inf": true}`. The checker must find, during its own propagation, a ReLU layer whose bounds
-  are empty (lower − upper > 10⁻⁹·(1 + max(|lower|, |upper|)) with finite bounds) or a contraction with no
-  solution in the noise box: the node's concrete set is empty.
+  are empty (lower − upper > 10⁻⁹·(1 + max(|lower|, |upper|)) with finite bounds), a contraction with no
+  solution in the noise box, or (at a layer where split constraints enter) one constraint row or a pair of rows
+  with no common solution in the noise box (VeryDiff's `infeasible_rows`: two-multiplier Farkas test by the
+  single-row dual, margin 10⁻⁹): the node's concrete set is empty.
 * **LP evidence:** `{"db": d, "lp": {"lemmas": [ids], "cons": [indices], "relax": [[k, j, type], ...], "rows":
   [{"o": label, "lam": [λ...]}]}}`. The constraint rows are, in this order: the linear claims of the listed
   lemmas (sorted ids, each in scope), the node's split constraints with the listed 1-based indices, and the

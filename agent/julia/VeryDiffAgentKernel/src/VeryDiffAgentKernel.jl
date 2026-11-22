@@ -22,7 +22,7 @@ using VeryDiff.Definitions: VerificationTask, PropState, BoundsCache, DiffLayer,
     get_layers, get_inputs, get_outputs, get_zonos_at_pos, first_pass,
     configure_first_usage!, zonos_initialized, prepare_prop_state!,
     resize_zonotope_storage!, get_zonotope, zono_bounds, sort_network
-using VeryDiff.Transformers: init_layer!, propagate_layer!, get_selectors, BoundRow, dual_tighten!, collect_bound_rows!
+using VeryDiff.Transformers: init_layer!, propagate_layer!, get_selectors, BoundRow, dual_tighten!, collect_bound_rows!, infeasible_rows
 
 const KERNEL_VERSION = "0.1.0"
 const CERT_VERSION = 1
