@@ -14,6 +14,8 @@
 using JuMP
 using GLPK
 
+const LP_TIME_LIMIT = Ref{Float64}(2.0)
+
 struct AffRow
     c::Float64
     g::Vector{Float64}
@@ -81,21 +83,36 @@ end
 dual_bound(o::AffRow, A::Matrix{Float64}, r::Vector{Float64}, λ::Vector{Float64}) =
     isempty(λ) ? o.c + sum(abs, o.g) : o.c + sum(abs, o.g .- A' * λ) + dot(λ, r)
 
-"""Propose λ ≥ 0 via GLPK; returns the λ with the smaller recomputed bound (λ = 0 if the LP fails)."""
-function propose_lambda(o::AffRow, A::Matrix{Float64}, r::Vector{Float64})
+"""Propose λ ≥ 0 via GLPK; returns the λ with the smaller recomputed bound (λ = 0 if the LP fails).
+`eqpairs` lists row pairs (i, k) with A[k,:] = −A[i,:] that encode an equality (with tiny outward slack in r).
+GLPK copes badly with such almost-coincident half-spaces, so each pair is given to the solver as one equality
+without offset; its free multiplier μ is mapped back onto the two certificate rows (λ_i, λ_k) = (μ⁺, μ⁻).
+The returned λ is always re-evaluated with the certificate rows, so this only affects tightness."""
+function propose_lambda(o::AffRow, A::Matrix{Float64}, r::Vector{Float64}; eqpairs::Vector{Tuple{Int,Int}}=Tuple{Int,Int}[])
     nc = size(A, 1)
     nc == 0 && return Float64[]
     best = zeros(nc); bestb = dual_bound(o, A, r, best)
     try
         model = Model(GLPK.Optimizer); set_silent(model)
+        set_time_limit_sec(model, LP_TIME_LIMIT[])        # GLPK can stall on degenerate LPs; no duals → λ = 0 (sound)
+        set_attribute(model, "presolve", GLPK.GLP_ON)
         m = length(o.g)
         @variable(model, -1.0 <= e[1:m] <= 1.0)
-        cons = @constraint(model, A * e .<= r)
+        # Identity pairs hold only up to rounding and are numerically overdetermined: give the solver a band
+        # |row − mid| ≤ τ (τ = 1e-7 relative) instead of an exact equality or two almost coincident half-spaces.
+        rs = copy(r)
+        for (i, k) in eqpairs
+            τ = 1e-7 * (1.0 + abs(r[i]) + sum(abs, @view A[i, :]))
+            mid = (r[i] - r[k]) / 2
+            rs[i] = mid + τ; rs[k] = -mid + τ
+        end
+        cons = @constraint(model, A * e .<= rs)
         @objective(model, Max, sum(o.g[i] * e[i] for i in 1:m if o.g[i] != 0.0; init=0.0))
         optimize!(model)
-        if has_duals(model)
+        if termination_status(model) == MOI.OPTIMAL && has_duals(model)
             d = dual.(cons)
-            for cand in (max.(0.0, -d), max.(0.0, d))
+            for σ in (-1.0, 1.0)
+                cand = max.(0.0, σ .* d)
                 b = dual_bound(o, A, r, cand)
                 b < bestb && (best = cand; bestb = b)
             end
@@ -110,7 +127,7 @@ end
 available in this propagation."""
 function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, off, m;
                            constraints::Vector{LemmaStatement}=LemmaStatement[], used_cons::Vector{Int}=Int[],
-                           relax::Bool=false, relax_spec::Vector{Any}=Any[])
+                           relax::Bool=false, relax_spec::Vector{Any}=Any[], eqpairs::Vector{Tuple{Int,Int}}=Tuple{Int,Int}[])
     rows = Vector{Float64}[]; r = Float64[]; used = Int[]
     for L in sort(lemma_ids)
         st = getlemma(S, L).stmt
@@ -138,7 +155,11 @@ function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, 
     end
     if relax
         rr, rv, spec = relax_rows(S, res, off, m)
+        base = length(rows)
         append!(rows, rr); append!(r, rv); append!(relax_spec, spec)
+        for (i, sp) in enumerate(spec)       # identity pairs: "+" row directly followed by its "−" row
+            sp[3] in ("dpre+", "dpost+") && push!(eqpairs, (base + i, base + i + 1))
+        end
     end
     A = isempty(rows) ? zeros(0, m) : permutedims(reduce(hcat, rows))
     return A, r, used
@@ -243,9 +264,9 @@ its label and λ, plus the lemma ids whose constraints were used (in order).
 """
 function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs, off, m;
                       constraints::Vector{LemmaStatement}=LemmaStatement[], relax::Bool=false)
-    used_cons = Int[]; relax_spec = Any[]
+    used_cons = Int[]; relax_spec = Any[]; eqpairs = Tuple{Int,Int}[]
     A, r, used = lemma_constraints(S, res, lemma_ids, off, m; constraints=constraints, used_cons=used_cons,
-                                   relax=relax, relax_spec=relax_spec)
+                                   relax=relax, relax_spec=relax_spec, eqpairs=eqpairs)
     ev = Dict{String,Any}[]
     worst = -Inf
     for (label, o, t) in objs
@@ -253,7 +274,7 @@ function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs,
         if b0 <= t
             continue
         end
-        λ = propose_lambda(o, A, r)
+        λ = propose_lambda(o, A, r; eqpairs=eqpairs)
         b = dual_bound(o, A, r, λ)
         worst = max(worst, b - t)
         push!(ev, Dict{String,Any}("o" => label, "lam" => λ))

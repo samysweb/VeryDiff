@@ -73,3 +73,19 @@ within 30k). Findings:
   no branch refuted, since single-row duality cannot detect joint infeasibility); one oblique cut along the
   in-band linear model (new primitive `split_lin`; 11,478 vs 6530); 4-way phase splits on the top layer-2 units
   (one branch infeasible, the others 1.01–1.11 vs 1.064); 0.0125-wide bands (27,120 vs 20,970).
+
+## LP-relaxation rows (`lp_relax`): MNIST in 124 propagations (checker ACCEPT)
+Kernel option `lp_relax`: the final check adds rows that are true relations at every unstable unit, evaluated on
+the zonotope rows of the shared witness ε: per-network triangles (a ≥ 0, a ≥ z, chord), identities d = z1 − z2
+and t = a1 − a2, and differential chords min(0,d) ≤ t ≤ max(0,d). The certificate lists the rows (layer, unit,
+type); the checker rebuilds them from its own replay (formulas valid for any sound bounds) and re-verifies λ.
+GLPK gets each identity pair as a band |row| ≤ 1e-7·scale (exact equalities are numerically overdetermined:
+138 identities over 111 symbols; two almost coincident half-spaces made GLPK report infeasibility), and has a 2 s
+time limit (it stalled on a test net); λ is always re-evaluated against the certificate rows.
+* Band [0.975,1.0]: bound 1.021 (before 1.064; offline full LP 1.011), closes with 13 propagations / 3.5 s
+  (before 6905 / 49 s). Whole proof with the same 10 bands: **124 propagations, 127 nodes, 36 s wall**,
+  checker ACCEPT (51 s) — `mnist68_lp_relax_cert.json.gz`. Coarser layouts: 5 cuts 134, 3 cuts 209,
+  1 cut 1314 propagations. Without bands (input splitting + LP only) the run did not finish within 20 min.
+* Cost per check with the LP: ~0.03–0.05 s on MNIST (vs ~2.5 ms for a plain propagation).
+* Tests: witness test (a single ε reproducing all layers at sampled points satisfies every relaxation row),
+  complete proof + checker ACCEPT, tampered row type / unit / option / multipliers rejected.

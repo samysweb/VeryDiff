@@ -15,9 +15,13 @@
 # band rows) and the final check (LP rows): bands with r ≤ 0.85 close with a single propagation each; the bands
 # above (true max 0.87–0.92, margin < 0.13) are discharged by VeryDiff's input splitting under the band
 # constraint. Band [0.95,1.05] was refined to 0.025-wide bands after it did not close within 30k checks.
+# LP_RELAX=1 (default): the final check also uses LP-relaxation rows (per-network triangles, identities
+# d = z1 − z2 / t = a1 − a2, differential chords min(0,d) ≤ t ≤ max(0,d)); this brings the proof from 24,802 to
+# 124 propagations. LP_RELAX=0 reproduces the 24,802-propagation proof.
 using VeryDiffAgentKernel
 d = get(ENV, "INST", "/tmp/claude-0/mnist")
-S = open_session("$d/net1.onnx", "$d/net2.onnx", "$d/spec.vnnlib", Dict("kind" => "epsilon", "epsilon" => 1.0); fallback=true)
+S = open_session("$d/net1.onnx", "$d/net2.onnx", "$d/spec.vnnlib", Dict("kind" => "epsilon", "epsilon" => 1.0); fallback=true,
+                 lp_relax=get(ENV, "LP_RELAX", "1") == "1")
 cuts = [0.55, 0.65, 0.75, 0.85, 0.95, 0.975, 1.0, 1.025, 1.05]
 node = 1; bands = Int[]
 for t in cuts
