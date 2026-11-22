@@ -66,7 +66,7 @@ function certificate(S::Session)
         "property" => JSON.parse(S.property_canon),
         "files" => Dict("net1" => basename(S.net1_path), "net2" => basename(S.net2_path), "spec" => basename(S.spec_path)),
         "softmax_removed" => S.softmax_removed,
-        "options" => Dict("csb" => S.csb, "fallback" => S.fallback),
+        "options" => Dict("csb" => S.csb, "fallback" => S.fallback, "lp_relax" => S.lp_relax),
         "status" => session_verdict(S),
         "spec_box" => Dict("lo" => S.root_box.lo, "hi" => S.root_box.hi),
         "active_dims" => S.active_dims,

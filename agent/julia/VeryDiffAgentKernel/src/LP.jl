@@ -109,7 +109,8 @@ end
 """Constraint rows (A, r) and the list of lemma ids used, from the in-scope lemmas whose layer zonotope is
 available in this propagation."""
 function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, off, m;
-                           constraints::Vector{LemmaStatement}=LemmaStatement[], used_cons::Vector{Int}=Int[])
+                           constraints::Vector{LemmaStatement}=LemmaStatement[], used_cons::Vector{Int}=Int[],
+                           relax::Bool=false, relax_spec::Vector{Any}=Any[])
     rows = Vector{Float64}[]; r = Float64[]; used = Int[]
     for L in sort(lemma_ids)
         st = getlemma(S, L).stmt
@@ -135,8 +136,83 @@ function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, 
             push!(rows, row.g); push!(r, rhs - row.c)
         end
     end
+    if relax
+        rr, rv, spec = relax_rows(S, res, off, m)
+        append!(rows, rr); append!(r, rv); append!(relax_spec, spec)
+    end
     A = isempty(rows) ? zeros(0, m) : permutedims(reduce(hcat, rows))
     return A, r, used
+end
+
+# ------------------------------------------------------------------ LP-relaxation rows
+# True relations between concrete values at ReLU layer k, unit j (z = input, a = output; 1/2 = N1/N2; d, t = the
+# differential input/output), all evaluated on the zonotope rows that one witness ε reproduces simultaneously:
+#   a ≥ 0, a ≥ z, a ≤ chord of ReLU over [min(l,0), max(u,0)]        (cached bounds l ≤ z ≤ u)
+#   d = z1 − z2, t = a1 − a2                                          (identities, two rows each)
+#   min(0,d) ≤ t ≤ max(0,d), each side relaxed by its chord over [min(dl,0), max(du,0)]
+# The formulas are valid for any sound bounds, so a checker with (slightly) different bounds rebuilds valid rows.
+const RELAX_TYPES = ("a1>=0", "a1>=z1", "a1<=ch", "a2>=0", "a2>=z2", "a2<=ch", "dpre+", "dpre-", "dpost+", "dpost-", "t<=ch", "t>=ch")
+
+chord_slope(l, u) = (l′ = min(l, 0.0); u′ = max(u, 0.0); u′ > l′ ? (u′ / (u′ - l′), l′) : (0.0, 0.0))
+
+"""Row g·ε ≤ rhs for (layer k, unit j, type) from input/output zonotopes and the layer's cache bounds."""
+function relax_row(Zi, Zo, bc, j::Int, typ::String, off, m)
+    R(Z) = affrow(Z, j, off, m)
+    lin(cs) = (g = zeros(m); c = 0.0; for (a, r) in cs; g .+= a .* r.g; c += a * r.c; end; (g, c))
+    if typ in ("a1>=0", "a2>=0")
+        a = typ == "a1>=0" ? R(Zo.Z₁) : R(Zo.Z₂); g, c = lin([(-1.0, a)]); k0 = 0.0
+    elseif typ in ("a1>=z1", "a2>=z2")
+        z, a = typ == "a1>=z1" ? (R(Zi.Z₁), R(Zo.Z₁)) : (R(Zi.Z₂), R(Zo.Z₂)); g, c = lin([(1.0, z), (-1.0, a)]); k0 = 0.0
+    elseif typ in ("a1<=ch", "a2<=ch")
+        z, a, l, u = typ == "a1<=ch" ? (R(Zi.Z₁), R(Zo.Z₁), bc.lower₁[j], bc.upper₁[j]) : (R(Zi.Z₂), R(Zo.Z₂), bc.lower₂[j], bc.upper₂[j])
+        s, l′ = chord_slope(l, u); g, c = lin([(1.0, a), (-s, z)]); k0 = s * l′         # a − s z + s l′ ≤ 0
+    elseif typ in ("dpre+", "dpre-")
+        σ = typ == "dpre+" ? 1.0 : -1.0; g, c = lin([(σ, R(Zi.∂Z)), (-σ, R(Zi.Z₁)), (σ, R(Zi.Z₂))]); k0 = 0.0
+    elseif typ in ("dpost+", "dpost-")
+        σ = typ == "dpost+" ? 1.0 : -1.0; g, c = lin([(σ, R(Zo.∂Z)), (-σ, R(Zo.Z₁)), (σ, R(Zo.Z₂))]); k0 = 0.0
+    elseif typ == "t<=ch"
+        s, l′ = chord_slope(bc.∂lower[j], bc.∂upper[j]); g, c = lin([(1.0, R(Zo.∂Z)), (-s, R(Zi.∂Z))]); k0 = s * l′
+    elseif typ == "t>=ch"
+        s, l′ = chord_slope(bc.∂lower[j], bc.∂upper[j]); g, c = lin([(1.0 - s, R(Zi.∂Z)), (-1.0, R(Zo.∂Z))]); k0 = s * l′
+    else
+        kerr("internal", "unknown relaxation row type $typ")
+    end
+    rhs = -(c + k0)
+    return g, rhs + 1e-12 * (1.0 + abs(rhs) + sum(abs, g))     # outward rounding allowance
+end
+
+"""Relaxation rows for all units that are unstable in N1, N2 or in d, at the ReLU layers this propagation ran."""
+function relax_rows(S::Session, res::PropResult, off, m)
+    rows = Vector{Float64}[]; r = Float64[]; spec = Any[]
+    for k in S.relu_layers
+        (k in res.layers_done) || continue
+        !isnothing(res.stop) && k >= res.stop && continue
+        L = layer_by_idx(S, k)
+        Zi = res.ps.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
+        Zo = res.ps.zono_storage.zonotopes[get_outputs(L)[1]].zonotope
+        bc = res.cache.bounds_cache[k]
+        for j in eachindex(bc.lower₁)
+            ((bc.lower₁[j] < 0 < bc.upper₁[j]) || (bc.lower₂[j] < 0 < bc.upper₂[j]) || (bc.∂lower[j] < 0 < bc.∂upper[j])) || continue
+            for typ in RELAX_TYPES
+                g, rhs = relax_row(Zi, Zo, bc, j, typ, off, m)
+                push!(rows, g); push!(r, rhs); push!(spec, Any[k, j, typ])
+            end
+        end
+    end
+    return rows, r, spec
+end
+
+function relax_zonos(S::Session, res::PropResult)
+    Zs = Any[]
+    for k in S.relu_layers
+        (k in res.layers_done) || continue
+        !isnothing(res.stop) && k >= res.stop && continue
+        L = layer_by_idx(S, k)
+        for pos in (get_inputs(L)[1], get_outputs(L)[1])
+            Z = res.ps.zono_storage.zonotopes[pos].zonotope; append!(Zs, [Z.∂Z, Z.Z₁, Z.Z₂])
+        end
+    end
+    return Zs
 end
 
 """Zonotope at the input of ReLU layer k if it was computed in this propagation, else nothing."""
@@ -166,9 +242,10 @@ Try to establish `objective_k ≤ t_k` for all k with lemma constraints. `objs` 
 its label and λ, plus the lemma ids whose constraints were used (in order).
 """
 function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs, off, m;
-                      constraints::Vector{LemmaStatement}=LemmaStatement[])
-    used_cons = Int[]
-    A, r, used = lemma_constraints(S, res, lemma_ids, off, m; constraints=constraints, used_cons=used_cons)
+                      constraints::Vector{LemmaStatement}=LemmaStatement[], relax::Bool=false)
+    used_cons = Int[]; relax_spec = Any[]
+    A, r, used = lemma_constraints(S, res, lemma_ids, off, m; constraints=constraints, used_cons=used_cons,
+                                   relax=relax, relax_spec=relax_spec)
     ev = Dict{String,Any}[]
     worst = -Inf
     for (label, o, t) in objs
@@ -181,5 +258,7 @@ function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs,
         worst = max(worst, b - t)
         push!(ev, Dict{String,Any}("o" => label, "lam" => λ))
     end
-    return worst <= 0.0, Dict{String,Any}("lemmas" => used, "cons" => used_cons, "rows" => ev), worst
+    evd = Dict{String,Any}("lemmas" => used, "cons" => used_cons, "rows" => ev)
+    relax && (evd["relax"] = relax_spec)
+    return worst <= 0.0, evd, worst
 end

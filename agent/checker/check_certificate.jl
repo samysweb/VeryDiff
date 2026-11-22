@@ -134,7 +134,37 @@ end
 """Verify LP dual evidence: every listed objective is bounded by its threshold via c + ‖g − Aᵀλ‖₁ + λ·r with λ ≥ 0.
 `objs` maps label => (c, g, threshold) for all objectives that must hold; objectives without evidence must hold
 by the plain zonotope bound."""
-function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m; cons=Tuple{Int,Seed}[])
+# LP-relaxation rows (re-implemented): true relations at ReLU layer k, unit j, valid for any sound cached bounds.
+const RTYPES = ("a1>=0", "a1>=z1", "a1<=ch", "a2>=0", "a2>=z2", "a2<=ch", "dpre+", "dpre-", "dpost+", "dpost-", "t<=ch", "t>=ch")
+function chord(l, u)
+    lp = min(l, 0.0); up = max(u, 0.0)
+    return up > lp ? (up / (up - lp), lp) : (0.0, 0.0)
+end
+function rrow(Zi, Zo, bc, j, typ, off, m)
+    terms = Tuple{Float64,Any}[]; k0 = 0.0
+    if typ == "a1>=0"; push!(terms, (-1.0, Zo.Z₁))
+    elseif typ == "a2>=0"; push!(terms, (-1.0, Zo.Z₂))
+    elseif typ == "a1>=z1"; push!(terms, (1.0, Zi.Z₁), (-1.0, Zo.Z₁))
+    elseif typ == "a2>=z2"; push!(terms, (1.0, Zi.Z₂), (-1.0, Zo.Z₂))
+    elseif typ == "a1<=ch"; s, lp = chord(bc.lower₁[j], bc.upper₁[j]); push!(terms, (1.0, Zo.Z₁), (-s, Zi.Z₁)); k0 = s * lp
+    elseif typ == "a2<=ch"; s, lp = chord(bc.lower₂[j], bc.upper₂[j]); push!(terms, (1.0, Zo.Z₂), (-s, Zi.Z₂)); k0 = s * lp
+    elseif typ == "dpre+"; push!(terms, (1.0, Zi.∂Z), (-1.0, Zi.Z₁), (1.0, Zi.Z₂))
+    elseif typ == "dpre-"; push!(terms, (-1.0, Zi.∂Z), (1.0, Zi.Z₁), (-1.0, Zi.Z₂))
+    elseif typ == "dpost+"; push!(terms, (1.0, Zo.∂Z), (-1.0, Zo.Z₁), (1.0, Zo.Z₂))
+    elseif typ == "dpost-"; push!(terms, (-1.0, Zo.∂Z), (1.0, Zo.Z₁), (-1.0, Zo.Z₂))
+    elseif typ == "t<=ch"; s, lp = chord(bc.∂lower[j], bc.∂upper[j]); push!(terms, (1.0, Zo.∂Z), (-s, Zi.∂Z)); k0 = s * lp
+    elseif typ == "t>=ch"; s, lp = chord(bc.∂lower[j], bc.∂upper[j]); push!(terms, (1.0 - s, Zi.∂Z), (-1.0, Zo.∂Z)); k0 = s * lp
+    else reject("unknown relaxation row type $typ")
+    end
+    g = zeros(m); c = 0.0
+    for (a, Z) in terms
+        cc, gg = row(Z, j, off, m); g .+= a .* gg; c += a * cc
+    end
+    rhs = -(c + k0)
+    return g, rhs + 1e-12 * (1.0 + abs(rhs) + sum(abs, g))
+end
+
+function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m; cons=Tuple{Int,Seed}[], relax_ctx=nothing)
     used = Int.(ev["lemmas"])
     issubset(used, scope) || reject("LP evidence uses lemmas not in scope")
     issorted(used) && allunique(used) || reject("LP evidence lemma list not sorted/unique")
@@ -154,6 +184,18 @@ function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m; cons=Tuple{Int,
         isnothing(Zk) && reject("LP evidence uses constraint $i whose layer is not available")
         for (terms, rhs) in specs(sd)
             c, g = combo(Zk, terms, off, m); push!(rows, g); push!(r, rhs - c)
+        end
+    end
+    if haskey(ev, "relax")
+        isnothing(relax_ctx) && reject("LP evidence uses relaxation rows but the certificate does not enable them")
+        zin, zout, tbc, ok_layer = relax_ctx
+        for e in ev["relax"]
+            k = Int(e[1]); j = Int(e[2]); typ = String(e[3])
+            typ in RTYPES || reject("unknown relaxation row type $typ")
+            ok_layer(k) || reject("relaxation row on layer $k that this propagation did not compute")
+            bc = tbc.bounds_cache[k]
+            1 <= j <= length(bc.lower₁) || reject("relaxation row unit out of range")
+            g, rhs = rrow(zin(k), zout(k), bc, j, typ, off, m); push!(rows, g); push!(r, rhs)
         end
     end
     A = isempty(rows) ? zeros(0, m) : permutedims(reduce(hcat, rows))
@@ -501,6 +543,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
     # lemma chaining: a lemma's proof starts from the cache and lemma scope of its assume node
     lemma_init = Dict{Int,Tuple{TaskBounds,Vector{Int},Vector{Tuple{Int,Seed}}}}()
     csb = Bool(get(get(C, "options", Dict()), "csb", false))
+    lp_relax = Bool(get(get(C, "options", Dict()), "lp_relax", false))
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = Bool(get(get(C, "options", Dict()), "fallback", false))
     obl_of = Dict{Int,Int}()
     verified_leaf = Dict{Int,Bool}()
@@ -536,7 +579,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
                 verbose && println(stderr, "leaf $id (infeasible): ", inf)
                 continue
             elseif n.kind == "c"
-                Zin, Z, _, ok, P, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb, cons=cdict)
+                Zin, Z, tbc, ok, P, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb, cons=cdict)
                 if inf
                     verified_leaf[id] = false
                     continue
@@ -554,6 +597,15 @@ function check(cert_path, net1, net2, specf; verbose=false)
                     for k in vcat([lemmas[L].layer for L in Int.(ev["lemmas"])], [cons[i][1] for i in Int.(get(ev, "cons", Int[])) if 1 <= i <= length(cons)])
                         Zk = zk_of(k); isnothing(Zk) || append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
                     end
+                    zpos(k, f) = P.zono_storage.zonotopes[f(only(l for l in get_layers(N) if l.layer_idx == k))[1]].zonotope
+                    rlayer(k) = k in relu && (isnothing(adapter_stop) || k < adapter_stop) && haskey(tbc.bounds_cache, k) &&
+                                !isnothing(P.zono_storage.zonotopes[get_outputs(only(l for l in get_layers(N) if l.layer_idx == k))[1]])
+                    if haskey(ev, "relax")
+                        lp_relax || reject("certificate uses relaxation rows without the lp_relax option")
+                        for k in sort(collect(relu)); rlayer(k) || continue
+                            for f in (get_inputs, get_outputs); ZZ = zpos(k, f); append!(Zs, [ZZ.∂Z, ZZ.Z₁, ZZ.Z₂]); end
+                        end
+                    end
                     off, m = layout(Zs)
                     objs = Dict{String,Tuple{Float64,Vector{Float64},Float64}}()
                     if o.kind == "main"
@@ -566,7 +618,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
                             c, g = combo(Z, terms, off, m); objs["spec:$k"] = (c, g, rhs)
                         end
                     end
-                    verified_leaf[id] = ok && verify_lp(ev, objs, zk_of, lemmas, scope, off, m; cons=cons)
+                    verified_leaf[id] = ok && verify_lp(ev, objs, zk_of, lemmas, scope, off, m; cons=cons,
+                        relax_ctx=haskey(ev, "relax") ? (k -> zpos(k, get_inputs), k -> zpos(k, get_outputs), tbc, rlayer) : nothing)
                 elseif o.kind == "main"
                     sat, _, _, _, db = epsprop(X1, X2, Zin, Z, nothing)
                     verified_leaf[id] = sat && ok && !isnan(db)
