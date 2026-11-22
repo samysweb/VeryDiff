@@ -213,6 +213,13 @@ function propagate_layer!(
     # parameters below use. Cached ⊆ fresh, so a unit can only move from an unstable to a stable case,
     # never the other way; the generator columns allocated in init_layer! (from fresh bounds) therefore
     # remain an upper bound.
+    if VeryDiff.ONE_SIDED_DIFF_FALLBACK[]
+        # Moved rows are one-sided under the cached bounds, hence (cached ⊆ bounds at allocation time) in the union
+        # any_neg|neg_any|any_pos|pos_any|any_any of the allocation bounds, for which init_layer! preallocates
+        # ∂ columns when this flag is set.
+        fresh_any_any = get_selectors(bounds₁, bounds₂, ∂bounds)[10]
+        one_sided_diff_fallback!(any_neg, neg_any, any_pos, pos_any, any_any, fresh_any_any)
+    end
     # Do NOT use counts created above for new_gen₁ / new_gen₂,
     # because these omit dimensions where difference is still zero
     new_gen₁ = count(lower₁ .< 0.0 .&& upper₁ .> 0.0)

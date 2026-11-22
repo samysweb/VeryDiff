@@ -46,6 +46,10 @@ function init_layer!(PS :: PropState, diff_layer :: DiffLayer{ONNXRelu{S1}, ONNX
     new_gen₁ = count(bounds₁[:,1] .< 0.0 .&& bounds₁[:,2] .> 0.0)
     new_gen₂ = count(bounds₂[:,1] .< 0.0 .&& bounds₂[:,2] .> 0.0)
     ∂new_gen = count(any_pos) + count(pos_any) + count(any_any)
+    if VeryDiff.ONE_SIDED_DIFF_FALLBACK[]
+        # room for one-sided rows that the transformer may move to any_any
+        ∂new_gen += count(any_neg) + count(neg_any)
+    end
     Z₁ = init_relu_zonotope(PS, input_zono_cache, input_zono.Z₁, new_gen₁, diff_layer.layer_idx)
     Z₂ = init_relu_zonotope(PS, input_zono_cache, input_zono.Z₂, new_gen₂, diff_layer.layer_idx)
     generators_d = Matrix{Float64}[]
