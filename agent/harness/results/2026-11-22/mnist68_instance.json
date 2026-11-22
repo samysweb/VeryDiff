@@ -1,1 +1,0 @@
-[{"name": "mnist_3_100_pruned5_68_local_15", "net1": "net1.onnx", "net2": "net2.onnx", "spec": "spec.vnnlib", "epsilon": 1.0, "expected": "SAFE (current VeryDiff: 118707 zonotopes, 193 s)"}]

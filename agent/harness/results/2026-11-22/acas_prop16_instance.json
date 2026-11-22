@@ -1,1 +1,0 @@
-[{"name": "acas_1_1_pruned5_prop16", "net1": "net1.onnx", "net2": "net2.onnx", "spec": "spec.vnnlib", "epsilon": 0.05, "expected": "SAFE (old log: 1533 zonotopes)"}]

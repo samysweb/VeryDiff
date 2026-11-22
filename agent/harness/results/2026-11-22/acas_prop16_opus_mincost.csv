@@ -1,2 +1,0 @@
-instance,agent_verdict,agent_wall_s,auto_nodes,cert_bytes,checker,checks,cost_usd,epsilon,expected,inspection_propagations,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,models,nodes,proof_actions,propagations
-acas_1_1_pruned5_prop16,SAFE,1002.0,1482,285175,ACCEPT SAFE nodes=1483 lemmas=0,1484,0.9323437000000001,0.05,SAFE (old log: 1533 zonotopes),1,4.054,0,0,0,25,1,claude-haiku-5-5;claude-opus-5-5,1483,16,1485

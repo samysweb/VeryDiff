@@ -1,2 +1,0 @@
-instance,agent_verdict,agent_wall_s,auto_nodes,cert_bytes,checker,cost_usd,epsilon,expected,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,models,nodes,proof_actions
-acas_1_1_pruned5_prop16,SAFE,69.2,1482,283090,ACCEPT SAFE nodes=1483 lemmas=0,0.0,0.05,SAFE (old log: 1533 zonotopes),6.096,0,0,0,6,1,,1483,2

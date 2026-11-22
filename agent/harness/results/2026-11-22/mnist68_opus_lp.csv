@@ -1,2 +1,0 @@
-instance,agent_verdict,agent_wall_s,auto_nodes,cert_bytes,checker,checks,cost_usd,epsilon,expected,inspection_propagations,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,models,nodes,proof_actions,propagations
-mnist_3_100_pruned5_68_local_15,SAFE,1415.3,118684,22137567,ACCEPT SAFE nodes=118691 lemmas=0,118693,1.4909319,1.0,"SAFE (current VeryDiff: 118707 zonotopes, 193 s)",5,542.614,0,0,0,51,7,claude-haiku-5-5;claude-opus-5-5,118691,18,118698

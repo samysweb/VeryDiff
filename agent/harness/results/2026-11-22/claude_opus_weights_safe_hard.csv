@@ -1,2 +1,0 @@
-instance,agent_verdict,agent_wall_s,auto_nodes,cert_bytes,checker,cost_usd,epsilon,expected,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,models,nodes,proof_actions
-safe_hard,SAFE,149.2,3500,335879,ACCEPT SAFE nodes=3503 lemmas=0,0.4331973,0.339949,SAFE?,8.518,0,0,0,32,3,claude-haiku-5-5;claude-opus-5-5,3503,8
