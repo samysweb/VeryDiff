@@ -28,8 +28,10 @@ function introduce_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vecto
         end
         stmt = LemmaStatement(relu_layer, copy(neurons), lo, hi, n1lo, n1hi, n2lo, n2hi)
         Lid = S.next_lemma; S.next_lemma += 1
-        # lemma obligation: same region, fresh cache, no lemmas in scope (non-circular by construction)
-        root = new_node!(S, 0, 0, 0, n.region, Int[], TaskBounds(), 1.0, 0, :agent)
+        # Lemma obligation (lemma chaining): same region; it inherits the lemmas already in scope at `n` and
+        # n's bounds cache (which depends only on those lemmas). Non-circular: those lemmas were introduced
+        # earlier and their proofs cannot refer to L. L counts as proven only if they are proven as well.
+        root = new_node!(S, 0, 0, 0, n.region, copy(n.lemmas_in_scope), deepcopy(inheritable_cache(n)), 1.0, 0, :agent)
         obl = new_obligation!(S, :lemma, root.id, Lid, LemmaBoundsAdapter(stmt))
         root.obligation = obl
         S.lemmas[Lid] = Lemma(Lid, stmt, n.id, obl, false, nothing, rationale)

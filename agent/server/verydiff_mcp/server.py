@@ -168,7 +168,8 @@ def introduce_lemma(node: int, relu_layer: int, neurons: list[int], dlo: list[fl
                     rationale: str = "") -> Any:
     """Assume bounds on ∂ = N1 − N2 pre-activations at the input of ReLU layer `relu_layer` (neurons 1-based) over
     region(node). The node becomes assume(L) with one child where the bounds seed VeryDiff's relaxation.
-    The lemma becomes its own proof obligation; SAFE requires it to be proven (prove_lemma). Use "inf"/"-inf" for
+    The lemma becomes its own proof obligation; SAFE requires it to be proven (prove_lemma). Its proof may use the
+    lemmas already in scope at `node` (lemma chains, e.g. layer 3 → layer 6 → layer 9). Use "inf"/"-inf" for
     unbounded entries. Optional n1_bounds/n2_bounds = [lo_list, hi_list] for the individual networks."""
     return _call("introduce_lemma", node=int(node), relu_layer=int(relu_layer), neurons=[int(n) for n in neurons],
                  dlo=dlo, dhi=dhi, n1_bounds=n1_bounds, n2_bounds=n2_bounds, rationale=_rat(rationale))
