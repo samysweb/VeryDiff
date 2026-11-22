@@ -56,6 +56,8 @@ leave behind a certificate that an independent checker accepts.
      L₂ at a later layer whose proof is helped by L₁'s seed, and so on. Prove the chain from the front
      (`prove_lemma` L₁ first); a lemma only counts as proven when all lemmas its proof used are proven.
      Retracting a lemma also removes every lemma introduced below it.
+   - **Dry runs** (`trial_lemma`): measure a lemma's real proof cost and main-tree saving at a node
+     before committing to it (see "Localise expensive lemmas").
    - **Phase lemmas** (`introduce_phase_lemma`): "units J of ReLU layer k are off (pre-activation ≤ 0) /
      on (≥ 0) on this region, in net1 and/or net2". One-sided, single-network claims are much cheaper to
      prove than interval bounds and are the natural *first links* of a chain.
@@ -135,9 +137,21 @@ Building lemma chains from the weights (not from sampled ranges):
   alone does not mean a smaller proof. Measured example (ACAS, pruned net, ε = 0.05): phase lemmas for the
   dead units at ReLU layers 3–18 cut the root bound from 1537 to 4.4 and the main tree from 1483 to 515
   nodes, but proving them took 5682 nodes, almost all at layers 15 and 18; stopping at layer 12 left the
-  main tree unchanged. Cheap links are those whose units are dead by a wide margin; look for ways to make
-  the expensive deep links cheaper (prove them on sub-regions, or only for the units that matter for
-  the output) rather than proving everything on the whole box.
+  main tree unchanged. Cheap links are those whose units are dead by a wide margin.
+
+**Localise expensive lemmas (recipe).** A lemma introduced at a node only has to hold — and only has to be
+proven — on that node's region, and it only helps inside that subtree. So:
+1. Find where the main-proof work concentrates: `split_scores`, `list_open_leaves` after a short
+   `auto_expand` probe, or your weight analysis (e.g. the region where a unit changes phase). Split there
+   first (k-way along the dimension that separates hard from easy).
+2. For each candidate lemma and each hard cell, call `trial_lemma` (a dry run: it introduces the lemma at
+   that cell, proves it, finishes the cell with and without it, reports exact nodes/checks and
+   `net_saving_nodes`, and then undoes everything; it is not counted as proof cost). Compare placements:
+   whole box vs. the hard half vs. single hard cells, and full vs. reduced neuron sets.
+3. Introduce lemmas for real only where `net_saving_nodes` > 0, then finish easy cells with
+   `auto_expand(..., per_leaf_max_nodes=…)`.
+Use `trial_lemma` instead of sandbox proxies (truncated or modified networks) for lemma costs: it measures
+the kernel's actual proof, including inherited lemmas and bounds caches.
 
 Workflow: derive a candidate bound analytically (or by a small LP/interval computation in numpy over
 the exported zonotope), sanity-check it by sampling (to catch mistakes and get refutations early),

@@ -33,6 +33,7 @@ mutable struct Session
     t0::Float64
     n_propagations::Int               # all VeryDiff propagations (proof checks + read-only inspection)
     n_checks::Int                     # propagations done by proof actions (check / auto_expand / prove_lemma)
+    n_trial_propagations::Int         # propagations spent in dry runs (trial_lemma); not proof cost
 end
 
 const SESSION = Ref{Union{Nothing,Session}}(nothing)
@@ -125,7 +126,7 @@ function open_session(net1::String, net2::String, spec::String, property::Abstra
     S = Session(abspath(net1), abspath(net2), abspath(spec), P.N, P.o1, P.o2, executable_network(P.o1), executable_network(P.o2), P.softmax_removed,
         P.out_tensor, P.pos_names, P.relu, P.root, active, adapter, canon, h, commit, tree,
         Dict{Int,Node}(), Dict{Int,Obligation}(), Dict{Int,Lemma}(), 1, 1, 1, 0, nothing,
-        Dict{String,Any}[], 0.0, time(), 0, 0)
+        Dict{String,Any}[], 0.0, time(), 0, 0, 0)
     root = new_node!(S, 0, 0, 0, P.root, Int[], TaskBounds(), 1.0, 0, :agent)
     S.main_obligation = new_obligation!(S, :main, root.id, 0, adapter)
     root.obligation = S.main_obligation

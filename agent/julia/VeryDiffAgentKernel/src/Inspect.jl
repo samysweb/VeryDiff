@@ -89,6 +89,7 @@ function session_status(S::Session)
         "kernel_seconds" => round(S.kernel_time; digits=2),
         "propagations" => S.n_propagations,
         "checks" => S.n_checks,
+        "trial_propagations" => S.n_trial_propagations,
         "cost_note" => "cost = total_nodes and checks (VeryDiff propagations by proof actions); inspection propagations are counted separately")
 end
 

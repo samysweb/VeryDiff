@@ -65,7 +65,8 @@ function certificate(S::Session)
         "log" => S.log,
         "stats" => Dict("nodes" => length(S.nodes), "auto_nodes" => count(n -> n.created_by == :auto, values(S.nodes)),
                         "kernel_seconds" => round(S.kernel_time; digits=3), "propagations" => S.n_propagations,
-                        "checks" => S.n_checks, "inspection_propagations" => S.n_propagations - S.n_checks))
+                        "checks" => S.n_checks, "inspection_propagations" => S.n_propagations - S.n_checks,
+                        "trial_propagations" => S.n_trial_propagations))
 end
 
 function export_certificate(S::Session, path::AbstractString)

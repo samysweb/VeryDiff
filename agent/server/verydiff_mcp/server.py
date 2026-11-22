@@ -191,6 +191,25 @@ def introduce_phase_lemma(node: int, relu_layer: int, neurons: list[int], net1: 
 
 
 @mcp.tool()
+def trial_lemma(node: int, relu_layer: int, neurons: list[int], kind: str = "phase", net1: str = "any", net2: str = "any",
+                dlo: list[float | str] | None = None, dhi: list[float | str] | None = None,
+                n1_bounds: list[list[float | str]] | None = None, n2_bounds: list[list[float | str]] | None = None,
+                lemma_max_nodes: int = 2000, main_max_nodes: int = 2000, max_seconds: float = 120.0,
+                baseline: bool = True, rationale: str = "") -> Any:
+    """DRY RUN (changes nothing, not counted as proof cost): introduce a phase lemma (kind="phase", net1/net2) or an
+    interval lemma (kind="interval", dlo/dhi/n1_bounds/n2_bounds) at open leaf `node`, prove it within
+    lemma_max_nodes, auto_expand the assume child within main_max_nodes, and (baseline=True) auto_expand `node`
+    without the lemma with the same budget. Returns exact nodes/checks for each part and net_saving_nodes. Use it to
+    decide WHERE a lemma pays off before introducing it for real."""
+    if kind not in ("phase", "interval"):
+        return {"error": "precondition", "message": "kind must be phase|interval"}
+    return _call("trial_lemma", node=int(node), relu_layer=int(relu_layer), neurons=[int(n) for n in neurons], kind=kind,
+                 net1=net1, net2=net2, dlo=dlo, dhi=dhi, n1_bounds=n1_bounds, n2_bounds=n2_bounds,
+                 lemma_max_nodes=int(lemma_max_nodes), main_max_nodes=int(main_max_nodes),
+                 max_seconds=float(max_seconds), baseline=bool(baseline), rationale=_rat(rationale))
+
+
+@mcp.tool()
 def prove_lemma(lemma: int, max_nodes: int = 200, max_seconds: float = 30.0, rationale: str = "") -> Any:
     """Run auto_expand on the lemma's proof tree (you can also drive it manually with check/split/auto_expand
     on its nodes; see session_status for its root)."""
