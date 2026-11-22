@@ -17,6 +17,13 @@ with the fresh bounds. Sound for any phase combination, since min(0,d) <= ReLU(z
 Off by default (VeryDiff's behaviour is unchanged)."""
 const ONE_SIDED_DIFF_FALLBACK = Ref{Bool}(false)
 
+"""Number of bound rows that `propagate!` keeps per ReLU layer (see Transformers/BoundRows.jl): cached bounds
+that are tighter than the zonotope's own bounds, used as linear constraints to tighten the cached bounds of later
+ReLU layers by weak duality. 0 = off (default; VeryDiff's behaviour is unchanged)."""
+const BOUND_ROWS = Ref{Int}(0)
+"""Minimum gap (relative to the width of the zonotope interval) for a cached bound to become a bound row."""
+const BOUND_ROWS_RTOL = Ref{Float64}(0.05)
+
 function __init__()
     BLAS.set_num_threads(1)
 end

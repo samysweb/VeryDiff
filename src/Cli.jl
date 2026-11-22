@@ -44,6 +44,10 @@ function parse_commandline(cmd_args)
         "--naive"
             help        =   "Use naive verification (without differential verification)"
             action      =   :store_true
+        "--bound-rows"
+            help        =   "Keep up to K bound rows per ReLU layer and use them to tighten later layers (0 = off)"
+            arg_type    =   Int
+            default     =   0
     end
     return parse_args(cmd_args, s)
 end
@@ -96,6 +100,8 @@ function run_cmd(args)
         error("Failed to parse specification: $spec")
         return 1
     end
+
+    VeryDiff.BOUND_ROWS[] = parsed_args["bound-rows"]
 
     timeout = parsed_args["timeout"]
     if timeout <= 0

@@ -17,6 +17,7 @@ include("Util.jl")
 include("Init.jl")
 include("Single_Transformers.jl")
 include("Diff_Transformers.jl")
+include("BoundRows.jl")
 include("Network.jl")
 
 export propagate!

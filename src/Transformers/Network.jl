@@ -3,6 +3,8 @@ function propagate!(N :: GeminiNetwork, P :: PropState)
     if max_io_id > length(P.zono_storage)
         resize_zonotope_storage!(P.zono_storage, max_io_id)
     end
+    K = VeryDiff.BOUND_ROWS[]
+    bound_rows = BoundRow[]
     for diff_layer in get_layers(N)
         # @debug "Propagating layer: $(typeof(diff_layer))"
         input_positions = get_inputs(diff_layer)
@@ -28,7 +30,11 @@ function propagate!(N :: GeminiNetwork, P :: PropState)
             P.task_bounds.bounds_cache[diff_layer.layer_idx] = bounds_cache
         end
         # @debug "Processing DiffLayer at index $(diff_layer.layer_idx) with bounds cache initialized=$(bounds_cache.initialized)"
+        is_relu = K > 0 && diff_layer.layer1 isa ONNXRelu
+        # Bound rows of earlier ReLU layers tighten this layer's cache before the transformer uses it.
+        is_relu && dual_tighten!(bounds_cache, input_zonotopes[1], bound_rows)
         propagate_layer!(outputs, diff_layer, input_zonotopes; bounds_cache=bounds_cache)
+        is_relu && collect_bound_rows!(bound_rows, bounds_cache, input_zonotopes[1], K, VeryDiff.BOUND_ROWS_RTOL[])
         #@debug "Layer $(diff_layer.layer_idx) output Zonotope ∂Z bounds: $(zono_bounds(output_zonotope_ref.zonotope.∂Z)[1:5,:])"
         #@debug "Layer $(diff_layer.layer_idx) output Zonotope Z₁ bounds: $(zono_bounds(output_zonotope_ref.zonotope.Z₁)[1:5,:])"
     end
