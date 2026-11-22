@@ -1,7 +1,10 @@
 # VeryDiff-Agent experiments (2026-11-22)
 
-This branch (`agent/mcp-prototype-experiments`) = the code branch `agent/mcp-prototype` + everything
-experimental: agent transcripts, run logs, certificates, analysis and driver scripts, and the two benchmark
+This branch (`agent/mcp-prototype-experiments`) = the code of `agent/mcp-prototype` + everything
+experimental. It is based on the history *before* `agent/mcp-prototype` was rewritten to drop the results
+(that old history is also kept as `agent/mcp-prototype-backup`); the code is identical, but commit hashes
+differ: `src/` commits `d9979d3` and `549caf4d` cited here are `fecc81f1` and `3541a7e5` on
+`agent/mcp-prototype`. Contents: agent transcripts, run logs, certificates, analysis and driver scripts, and the two benchmark
 instances. Code and documentation live on `agent/mcp-prototype`; start with `agent/README.md` and
 `agent/docs/` (`mnist_proof.md`, `proof_strategy.md`, `mcp_tools.md`, `certificate_format.md`).
 
