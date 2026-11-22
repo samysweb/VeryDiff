@@ -33,3 +33,11 @@
   but dropped it after the first link: the ReLU-9 lemma halved the root bound (1537→765) yet its own proof had
   87/94 leaves open after 100 nodes. Final proof: a 6×3×6 input grid chosen from sandbox experiments, finished
   per cell with auto_expand.
+* ACAS prop_16, third Opus run (phase lemmas available; prompt now contains the measured chain costs *of this
+  instance*, so this run is not an unbiased benchmark): SAFE, 1483 nodes, checker ACCEPT, 45 tool calls, 17 min,
+  SDK-reported $1.46. Opus cited the measured example and added no lemmas; it tried to save nodes by merging
+  VeryDiff's consecutive same-dimension splits into k-way splits, which cannot help because the kernel records
+  a k-way split as a chain of binary splits (identical node count).
+* Phase-lemma chain measured directly (no LLM): dead units at ReLU 3–18 as chained phase lemmas → main tree
+  963 nodes (vs 1483) but 5682 lemma-proof nodes; chains up to layer 9/12 cost 293/594 proof nodes and leave
+  the main tree unchanged (1486/1487). Certificate of the full chain: checker ACCEPT (6645 nodes, 6 lemmas).
