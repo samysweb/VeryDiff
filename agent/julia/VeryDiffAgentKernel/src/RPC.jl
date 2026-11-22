@@ -57,6 +57,14 @@ const METHODS = Dict{String,Function}(
                            rationale=opt(p, "rationale", "")),
     "introduce_phase_lemma" => p -> introduce_phase_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]), ivec(p["neurons"]);
                            net1=opt(p, "net1", "any"), net2=opt(p, "net2", "any"), rationale=opt(p, "rationale", "")),
+    "trial_lemma" => p -> trial_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]), ivec(p["neurons"]);
+                           kind=opt(p, "kind", "phase"), dlo=get(p, "dlo", nothing), dhi=get(p, "dhi", nothing),
+                           n1_bounds=get(p, "n1_bounds", nothing), n2_bounds=get(p, "n2_bounds", nothing),
+                           net1=opt(p, "net1", "any"), net2=opt(p, "net2", "any"),
+                           lemma_max_nodes=min(Int(opt(p, "lemma_max_nodes", 2000)), 200_000),
+                           main_max_nodes=min(Int(opt(p, "main_max_nodes", 2000)), 200_000),
+                           max_seconds=Float64(opt(p, "max_seconds", 120.0)), baseline=Bool(opt(p, "baseline", true)),
+                           rationale=opt(p, "rationale", "")),
     "prove_lemma" => p -> prove_lemma!(current(), Int(p["lemma"]); max_nodes=Int(opt(p, "max_nodes", 1000)),
                            max_seconds=Float64(opt(p, "max_seconds", 60.0)), rationale=opt(p, "rationale", "")),
     "retract_lemma" => p -> retract_lemma!(current(), Int(p["lemma"]); rationale=opt(p, "rationale", "")),
@@ -96,7 +104,7 @@ sanitize(x::Tuple) = Any[sanitize(v) for v in x]
 sanitize(x) = x
 
 # Actions allowed inside `batch` (no session/certificate/export side effects).
-const BATCHABLE = Set(["check", "split", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "prove_lemma", "retract_lemma",
+const BATCHABLE = Set(["check", "split", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
     "refute_lemma", "prune", "submit_counterexample", "session_status", "list_open_leaves", "get_node",
     "output_bounds", "split_scores", "cache_bounds", "inspect_layer", "read_weights", "eval_point"])
 

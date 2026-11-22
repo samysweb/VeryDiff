@@ -126,3 +126,72 @@ function decode_float(x)
 end
 encode_float(x::Real) = isfinite(x) ? Float64(x) : (x > 0 ? "Infinity" : (x < 0 ? "-Infinity" : "NaN"))
 encode_floats(v) = isnothing(v) ? nothing : [x isa Real ? encode_float(x) : x for x in v]
+
+# ------------------------------------------------------------- dry runs
+snapshot(S::Session) = (deepcopy(S.nodes), deepcopy(S.obligations), deepcopy(S.lemmas), S.next_node, S.next_obl,
+                        S.next_lemma, deepcopy(S.cex), length(S.log), S.n_propagations, S.n_checks)
+function restore!(S::Session, s)
+    S.nodes, S.obligations, S.lemmas, S.next_node, S.next_obl, S.next_lemma, S.cex = s[1:7]
+    resize!(S.log, s[8])
+    used = S.n_propagations - s[9]
+    S.n_propagations, S.n_checks = s[9], s[10]
+    S.n_trial_propagations += used
+    return used
+end
+
+"""
+Dry run of a lemma at `node` (an open leaf): introduce it, prove it with `lemma_max_nodes`, then run auto_expand
+on the assume child with `main_max_nodes`; optionally (`baseline`) also auto_expand `node` without the lemma with
+the same budget. Everything is undone afterwards; the propagations are counted as trial work, not proof cost.
+`kind` = "interval" (dlo/dhi, n1_bounds, n2_bounds) or "phase" (net1/net2 = off|on|any).
+"""
+function trial_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vector{Int}; kind::AbstractString="phase",
+                      dlo=nothing, dhi=nothing, n1_bounds=nothing, n2_bounds=nothing, net1="any", net2="any",
+                      lemma_max_nodes::Int=2000, main_max_nodes::Int=2000, max_seconds::Float64=120.0,
+                      baseline::Bool=true, rationale::AbstractString="")
+    timed(S) do
+        require_open_leaf(getnode(S, node))
+        t0 = time()
+        out = Dict{String,Any}("node" => node, "relu_layer" => relu_layer, "n_neurons" => length(neurons), "kind" => kind)
+        snap = snapshot(S)
+        try
+            r = kind == "phase" ? introduce_phase_lemma!(S, node, relu_layer, neurons; net1=net1, net2=net2) :
+                kind == "interval" ? introduce_lemma!(S, node, relu_layer, neurons,
+                    isnothing(dlo) ? fill(-Inf, length(neurons)) : dlo, isnothing(dhi) ? fill(Inf, length(neurons)) : dhi;
+                    n1_bounds=n1_bounds, n2_bounds=n2_bounds) :
+                kerr("precondition", "kind must be phase|interval")
+            c0 = S.n_checks
+            p = prove_lemma!(S, r["lemma"]; max_nodes=lemma_max_nodes, max_seconds=max_seconds)
+            out["lemma"] = Dict("status" => p["lemma_status"], "proof_nodes" => length(subtree(S, r["lemma_root"])),
+                                "checks" => S.n_checks - c0, "open_leaves" => p["open_leaves"])
+            c1 = S.n_checks
+            a = auto_expand!(S, r["child"]; max_nodes=main_max_nodes, max_seconds=max_seconds, log=false)
+            out["with_lemma"] = Dict("subtree_nodes" => length(subtree(S, r["child"])), "checks" => S.n_checks - c1,
+                                     "closed" => a["subtree_closed"], "open_leaves" => a["open_leaves"])
+        finally
+            out["trial_propagations"] = restore!(S, snap)
+        end
+        if baseline
+            snap = snapshot(S)
+            try
+                c1 = S.n_checks
+                a = auto_expand!(S, node; max_nodes=main_max_nodes, max_seconds=max_seconds, log=false)
+                out["without_lemma"] = Dict("subtree_nodes" => length(subtree(S, node)), "checks" => S.n_checks - c1,
+                                            "closed" => a["subtree_closed"], "open_leaves" => a["open_leaves"])
+            finally
+                out["trial_propagations"] += restore!(S, snap)
+            end
+        end
+        if haskey(out, "with_lemma") && get(out, "without_lemma", nothing) !== nothing &&
+           out["lemma"]["status"] == "proven" && out["with_lemma"]["closed"] && out["without_lemma"]["closed"]
+            out["net_saving_nodes"] = out["without_lemma"]["subtree_nodes"] - out["with_lemma"]["subtree_nodes"] - out["lemma"]["proof_nodes"]
+        else
+            out["net_saving_nodes"] = nothing
+            out["note"] = "budgets too small to compare (something did not close); numbers are lower bounds"
+        end
+        out["seconds"] = round(time() - t0; digits=2)
+        log_action!(S, "trial_lemma", Dict("node" => node, "relu_layer" => relu_layer, "neurons" => neurons, "kind" => kind,
+            "result" => Dict(k => out[k] for k in ("lemma", "with_lemma", "without_lemma", "net_saving_nodes") if haskey(out, k))), rationale)
+        return out
+    end
+end

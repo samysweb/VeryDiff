@@ -271,6 +271,32 @@ end
     @test_throws K.KernelError introduce_phase_lemma!(S2, r["child"], k, [j])
 end
 
+@testset "trial_lemma dry run" begin
+    S = open_case("safe_mid")
+    root = S.obligations[S.main_obligation].root
+    check!(S, root)
+    c1, c2 = split!(S, root, 1)["children"]
+    k = S.relu_layers[end]
+    res = K.inspect_propagation(S, S.nodes[c1]; stop=k)
+    b = K.zono_bounds(res.Zout.∂Z)
+    lo, hi = b[1:2, 1] .- 1e-6, b[1:2, 2] .+ 1e-6
+    before_ids = sort(collect(keys(S.nodes))); before_checks = S.n_checks; before_log = length(S.log)
+    cert_before = K.certificate(S)["nodes"]
+    t = trial_lemma!(S, c1, k, [1, 2]; kind="interval", dlo=lo, dhi=hi, lemma_max_nodes=5000, main_max_nodes=5000)
+    @test sort(collect(keys(S.nodes))) == before_ids && isempty(S.lemmas)
+    @test S.n_checks == before_checks && S.n_trial_propagations > 0
+    @test length(S.log) == before_log + 1 && S.log[end]["action"] == "trial_lemma"
+    @test K.certificate(S)["nodes"] == cert_before
+    @test t["lemma"]["status"] == "proven" && t["with_lemma"]["closed"] && t["without_lemma"]["closed"]
+    @test t["net_saving_nodes"] isa Integer
+    # the dry-run numbers equal a real run
+    r = introduce_lemma!(S, c1, k, [1, 2], lo, hi)
+    prove_lemma!(S, r["lemma"]; max_nodes=5000)
+    auto_expand!(S, r["child"]; max_nodes=5000)
+    @test length(K.subtree(S, r["lemma_root"])) == t["lemma"]["proof_nodes"]
+    @test length(K.subtree(S, r["child"])) == t["with_lemma"]["subtree_nodes"]
+end
+
 @testset "Cache hygiene: retract restores lemma-free bounds" begin
     S = open_case("safe_mid")
     root = S.obligations[S.main_obligation].root
