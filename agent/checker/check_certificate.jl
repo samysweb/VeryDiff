@@ -486,20 +486,53 @@ layer_with_index(N, k) = only(l for l in get_layers(N) if l.layer_idx == k)
 input_zonotope(P, N, k) = P.zono_storage.zonotopes[get_inputs(layer_with_index(N, k))[1]].zonotope
 
 """
-Tighten the cache of ReLU layer k with the case-split constraints at layers ≤ k (dual bounds, one constraint
-row at a time).
+Bound rows (option `bound_rows` = K > 0). A cached bound that is tighter than the zonotope's own bound is a true
+row: for example z_j ≤ u_j, with z_j = c + g·ε. After the tightening of ReLU layer k, keep the K bounds with the
+largest gap to the zonotope bound (relative to the width of the zonotope interval, only gaps > rtol). Ties go by
+variable (z1, z2, d), then neuron, then upper before lower. The rows are used for the dual bounds of the later
+ReLU layers. The kernel (VeryDiff `collect_bound_rows!`) uses the same rule. If a small difference in floating
+point gives a different selection, the bounds can only change slightly; they are sound in all cases.
+
+Each row is (layer, claim) with claim = ([(variable, neuron, ±1)], ±bound), as for linear_claims.
 """
-function dual_tighten!(bc, P, N, Zi, k, constraints::Dict{Int,Vector{Seed}})
-    earlier = [(layer, s) for (layer, list) in constraints for s in list if layer <= k]
-    isempty(earlier) && return
+function collect_bound_rows!(rows, bc, Zi, layer, K, rtol)
+    K > 0 || return
+    candidates = []
+    for (name, Z, lower, upper) in (("z1", Zi.Z₁, bc.lower₁, bc.upper₁), ("z2", Zi.Z₂, bc.lower₂, bc.upper₂),
+                                    ("d", Zi.∂Z, bc.∂lower, bc.∂upper))
+        var = findfirst(==(name), ("z1", "z2", "d"))
+        zb = zono_bounds(Z)
+        for j in eachindex(lower)
+            width = zb[j, 2] - zb[j, 1]
+            width > 1e-12 || continue
+            gap_upper = (zb[j, 2] - upper[j]) / width
+            gap_lower = (lower[j] - zb[j, 1]) / width
+            isfinite(upper[j]) && gap_upper > rtol && push!(candidates, (gap_upper, var, j, 0, ([(name, j, 1.0)], upper[j])))
+            isfinite(lower[j]) && gap_lower > rtol && push!(candidates, (gap_lower, var, j, 1, ([(name, j, -1.0)], -lower[j])))
+        end
+    end
+    sort!(candidates; by = x -> (-x[1], x[2], x[3], x[4]))
+    for x in Iterators.take(candidates, K)
+        push!(rows, (layer, x[5]))
+    end
+end
+
+"""
+Tighten the cache of ReLU layer k with the case-split constraints at layers ≤ k and the bound rows of layers < k
+(dual bounds, one row at a time).
+"""
+function dual_tighten!(bc, P, N, Zi, k, constraints::Dict{Int,Vector{Seed}}, bound_rows=[])
+    claims = [(layer, claim) for (layer, list) in constraints if layer <= k for s in list for claim in linear_claims(s)]
+    append!(claims, [(layer, claim) for (layer, claim) in bound_rows if layer < k])
+    isempty(claims) && return
     Zs = Any[Zi.∂Z, Zi.Z₁, Zi.Z₂]
-    for (layer, _) in earlier
+    for layer in unique(first.(claims))
         Z = input_zonotope(P, N, layer)
         append!(Zs, [Z.∂Z, Z.Z₁, Z.Z₂])
     end
     offset, m = column_layout(Zs)
     rows = Tuple{Vector{Float64},Float64}[]                    # a·ε ≤ β
-    for (layer, s) in sort(earlier; by=first), (terms, rhs) in linear_claims(s)
+    for (layer, (terms, rhs)) in claims
         c, g = combination_row(input_zonotope(P, N, layer), terms, offset, m)
         push!(rows, (g, rhs - c))
     end
@@ -531,16 +564,18 @@ Propagate the box [lo, hi] through both networks.
   constraints  split constraints per ReLU layer (for contraction and dual bounds)
   stop         nothing: propagate to the output; k: stop before ReLU layer k (lemma proofs)
   csb          apply the z1 = z2 + d tightening at every ReLU layer
+  bound_rows   (K, rtol): collect K bound rows per ReLU layer for the dual bounds of later layers (K = 0: off)
 
 At each ReLU layer, do these steps in this order: contraction, seeding, intersection with the zonotope,
-dual bounds, consistency tightening, test for an empty interval, VeryDiff's transformer. The kernel uses the
-same order.
+dual bounds, consistency tightening, test for an empty interval, collection of bound rows, VeryDiff's
+transformer. The kernel uses the same order.
 
 Return a named tuple: Zin (input zonotope), Zout (output, or input of the stop layer), cache, valid
 (no NaN and no inconsistent cache), P (the propagation state) and infeasible (the node has no concrete input).
 """
 function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vector{Seed}}, stop;
-                   csb::Bool=false, constraints::Dict{Int,Vector{Seed}}=Dict{Int,Vector{Seed}}())
+                   csb::Bool=false, constraints::Dict{Int,Vector{Seed}}=Dict{Int,Vector{Seed}}(),
+                   bound_rows::Tuple{Int,Float64}=(0, 0.0))
     cache = deepcopy(cache_in)
     P = PropState(true)
     prepare_prop_state!(P, task_for_box(lo, hi, active, cache))
@@ -550,6 +585,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
     infeasible() = (Zin=nothing, Zout=nothing, cache=cache, valid=false, P=P, infeasible=true)
 
     Zout = nothing
+    collected = []
     for L in layers
         if !isnothing(stop) && L.layer_idx == stop
             Zout = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
@@ -571,9 +607,10 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
         if L.layer1 isa ONNXRelu
             Zi = input_zonotopes[1]
             intersect_with_zonotope!(bc, Zi)
-            isempty(constraints) || dual_tighten!(bc, P, N, Zi, L.layer_idx, constraints)
+            dual_tighten!(bc, P, N, Zi, L.layer_idx, constraints, collected)
             (csb || haskey(seeds, L.layer_idx)) && consistency_tighten!(bc)
             has_empty_interval(bc) && return infeasible()
+            collect_bound_rows!(collected, bc, Zi, L.layer_idx, bound_rows...)
         end
         propagate_layer!(outputs, L, input_zonotopes; bounds_cache=bc)
     end
@@ -917,6 +954,7 @@ mutable struct Replay
     tree::Tree
     csb::Bool
     lp_relax::Bool
+    bound_rows::Tuple{Int,Float64}           # options bound_rows, bound_rows_rtol
     epsilon_property::Function
     region::Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}
     lemma_start::Dict{Int,NodeState}         # lemma root id -> state at its assume node (lemma chaining)
@@ -943,7 +981,8 @@ end
 function propagate_node(r::Replay, s::NodeState, stop)
     lo, hi = r.region[s.id]
     seeds, constraints = seeds_and_constraints(r, s)
-    return propagate(r.problem.N, lo, hi, r.problem.active, s.cache, seeds, stop; csb=r.csb, constraints=constraints)
+    return propagate(r.problem.N, lo, hi, r.problem.active, s.cache, seeds, stop; csb=r.csb, constraints=constraints,
+                     bound_rows=r.bound_rows)
 end
 
 """Lemma of a lemma obligation (nothing for the main obligation)."""
@@ -1230,7 +1269,9 @@ function check(cert_path, net1, net2, spec; verbose=false)
     options = get(C, "options", Dict())
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = Bool(get(options, "fallback", false))
     tree = read_tree(C, problem)
-    r = Replay(problem, tree, Bool(get(options, "csb", false)), Bool(get(options, "lp_relax", false)),
+    bound_rows = (Int(get(options, "bound_rows", 0)), Float64(get(options, "bound_rows_rtol", 0.05)))
+    need(bound_rows[1] >= 0 && bound_rows[2] >= 0, "bad bound_rows options")
+    r = Replay(problem, tree, Bool(get(options, "csb", false)), Bool(get(options, "lp_relax", false)), bound_rows,
                VeryDiff.get_epsilon_property(problem.epsilon), Dict(), Dict(), Dict(), Dict(), verbose)
     replay_all!(r)
 

@@ -15,6 +15,7 @@ struct PropResult
     layers_done::Vector{Int}
     stop::Union{Nothing,Int}
     infeasible::Union{Nothing,Dict{String,Any}}   # witness that the node's concrete set is empty (propagation stopped)
+    crows::Vector{BoundRow}           # bound rows collected during the propagation, in collection order
 end
 
 """Group the statements of in-scope lemmas and of the node's case-split constraints by ReLU layer."""
@@ -145,75 +146,26 @@ function rescale_storage!(P::PropState, changed)
 end
 
 # ------------------------------------------------------------------ constraint-aware intermediate bounds
-# For u = c + g·ε and a split-constraint row a·ε ≤ β, every λ ≥ 0 gives u ≤ c + Σ|g_i − λ a_i| + λβ (weak duality).
-# φ(λ) = Σ|g_i − λa_i| + λβ is convex piecewise linear; its minimiser is found exactly by walking the sorted
-# breakpoints g_i/a_i (weighted median). Rounding only affects tightness of the last digits; any λ is sound.
+# Single-row weak duality (VeryDiff `src/Transformers/BoundRows.jl`): for u = c + g·ε and a row a·ε ≤ β, every λ ≥ 0
+# gives u ≤ c + ‖g − λa‖₁ + λβ. The rows are (1) the node's case-split constraints and (2) bound rows that VeryDiff
+# collects during the propagation (cached bounds tighter than the zonotope's own bounds; `VeryDiff.BOUND_ROWS`).
 
-"""min over λ ≥ 0 of Σ|g − λa| + λβ (exact, O(m log m))."""
-function dual_one_row(g::Vector{Float64}, a::Vector{Float64}, β::Float64)
-    base = sum(abs, g)
-    isfinite(β) || return base
-    slope = β
-    bps = Tuple{Float64,Float64}[]
-    for i in eachindex(a)
-        ai = a[i]; ai == 0.0 && continue
-        l = g[i] / ai
-        if l > 0
-            slope -= abs(ai); push!(bps, (l, abs(ai)))
-        else
-            slope += abs(ai)
-        end
-    end
-    slope >= 0 && return base
-    sort!(bps; by=first)
-    λ = 0.0
-    for (l, w) in bps
-        λ = l; slope += 2w
-        slope >= 0 && break
-    end
-    return min(base, sum(abs, g .- λ .* a) + λ * β)
-end
+relu_input_zono(P::PropState, N, k::Int) =
+    P.zono_storage.zonotopes[get_inputs(only(l for l in get_layers(N) if l.layer_idx == k))[1]].zonotope
 
-"""Constraint rows (a, β) with a·ε ≤ β in layout (off, m), from the node's constraints at layers ≤ k."""
-function constraint_rows(P::PropState, N, cons::Vector{LemmaStatement}, k::Int, off, m)
-    rows = Tuple{Vector{Float64},Float64}[]
+const VAR_INDEX = Dict("z1" => 1, "z2" => 2, "d" => 3)
+
+"""Bound rows for the case-split constraints at ReLU layers ≤ k (live references to the layers' input zonotopes)."""
+function constraint_bound_rows(P::PropState, N, cons::Vector{LemmaStatement}, k::Int)
+    rows = BoundRow[]
     for st in cons
         st.relu_layer <= k || continue
-        L = only(l for l in get_layers(N) if l.layer_idx == st.relu_layer)
-        Zk = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
+        Zk = relu_input_zono(P, N, st.relu_layer)
         for (terms, rhs) in lemma_specs(st)
-            row = combo_row(Zk, terms, off, m)
-            push!(rows, (row.g, rhs - row.c))
+            push!(rows, BoundRow(Zk, [(VAR_INDEX[v], j, a) for (v, j, a) in terms], rhs))
         end
     end
     return rows
-end
-
-"""Tighten the cache of ReLU layer k (input Zi) with the case-split constraints at layers ≤ k."""
-function dual_tighten!(bc::BoundsCache, P::PropState, N, Zi, k::Int, cons::Vector{LemmaStatement})
-    Zs = Any[Zi.∂Z, Zi.Z₁, Zi.Z₂]
-    for st in cons
-        st.relu_layer <= k || continue
-        L = only(l for l in get_layers(N) if l.layer_idx == st.relu_layer)
-        Zk = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
-        append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
-    end
-    off, m = var_layout(Zs)
-    rows = constraint_rows(P, N, cons, k, off, m)
-    isempty(rows) && return
-    for (Z, lo, hi) in ((Zi.Z₁, bc.lower₁, bc.upper₁), (Zi.Z₂, bc.lower₂, bc.upper₂), (Zi.∂Z, bc.∂lower, bc.∂upper))
-        for j in eachindex(lo)
-            r = affrow(Z, j, off, m)
-            ub = Inf; lb = -Inf
-            ng = .-r.g
-            for (a, β) in rows
-                ub = min(ub, r.c + dual_one_row(r.g, a, β))
-                lb = max(lb, r.c - dual_one_row(ng, a, β))
-            end
-            isfinite(ub) && (hi[j] = min(hi[j], nextfloat(ub + 1e-12 * abs(ub))))
-            isfinite(lb) && (lo[j] = max(lo[j], prevfloat(lb - 1e-12 * abs(lb))))
-        end
-    end
 end
 
 const INFEASIBLE_RTOL = 1e-9
@@ -268,7 +220,8 @@ propagate_seeded!(N, P, seeds, stop) — copy of `VeryDiff.Transformers.propagat
 """
 function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatement}}, stop::Union{Nothing,Int};
                            csb::Bool=false, infeasible::Ref{Any}=Ref{Any}(nothing),
-                           contract::Dict{Int,Vector{LemmaStatement}}=Dict{Int,Vector{LemmaStatement}}())
+                           contract::Dict{Int,Vector{LemmaStatement}}=Dict{Int,Vector{LemmaStatement}}(),
+                           crows::Vector{BoundRow}=BoundRow[])
     max_io_id = maximum(max(maximum(l.inputs), maximum(l.outputs)) for l in get_layers(N))
     if max_io_id > length(P.zono_storage.zonotopes)
         resize_zonotope_storage!(P.zono_storage, max_io_id)
@@ -307,7 +260,8 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
         end
         if diff_layer.layer1 isa ONNXRelu
             intersect_fresh!(bounds_cache, input_zonotopes[1])
-            haskey(contract, -1) && dual_tighten!(bounds_cache, P, N, input_zonotopes[1], diff_layer.layer_idx, contract[-1])
+            rows = vcat(constraint_bound_rows(P, N, get(contract, -1, LemmaStatement[]), diff_layer.layer_idx), crows)
+            isempty(rows) || dual_tighten!(bounds_cache, input_zonotopes[1], rows)
             # Seeded layers (case splits, lemmas) always get the cross-network tightening, so that a bound on
             # one network's pre-activation also tightens the other one's via d = z1 − z2.
             (csb || haskey(seeds, diff_layer.layer_idx)) && csb_tighten!(bounds_cache)
@@ -316,6 +270,7 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
                 infeasible[] = Dict{String,Any}("layer" => diff_layer.layer_idx, "var" => e[1], "neuron" => e[2], "gap" => e[3])
                 break
             end
+            collect_bound_rows!(crows, bounds_cache, input_zonotopes[1], VeryDiff.BOUND_ROWS[], VeryDiff.BOUND_ROWS_RTOL[])
         end
         propagate_layer!(outputs, diff_layer, input_zonotopes; bounds_cache=bounds_cache)
         push!(done, diff_layer.layer_idx)
@@ -328,6 +283,8 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
                          stop::Union{Nothing,Int}; verification_status=nothing,
                          constraints::Vector{LemmaStatement}=LemmaStatement[])
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = S.fallback
+    VeryDiff.BOUND_ROWS[] = S.bound_rows
+    VeryDiff.BOUND_ROWS_RTOL[] = S.bound_rows_rtol
     cache = deepcopy(cache_in)
     task = to_task(box, S.active_dims, cache; verification_status=verification_status)
     ps = PropState(true)
@@ -335,13 +292,14 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     ps.task_bounds === cache || kerr("internal", "prop state does not use the owned cache")
     Zin = ps.zono_storage.zonotopes[1].zonotope
     infeas = Ref{Any}(nothing)
+    crows = BoundRow[]
     done = propagate_seeded!(S.N, ps, seeds_for(S, lemma_ids, constraints), stop; csb=S.csb, infeasible=infeas,
                              contract=merge(seeds_for(S, Int[], constraints), isempty(constraints) ? Dict{Int,Vector{LemmaStatement}}() :
-                                            Dict(-1 => constraints)))
+                                            Dict(-1 => constraints)), crows=crows)
     S.n_propagations += 1
     if !isnothing(infeas[])
         inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]
-        return PropResult(ps, task, Zin, nothing, cache, sort(inconsistent), false, done, stop, infeas[])
+        return PropResult(ps, task, Zin, nothing, cache, sort(inconsistent), false, done, stop, infeas[], crows)
     end
     if isnothing(stop)
         Zout = ps.zono_storage.zonotopes[get_outputs(get_layers(S.N)[end])[1]].zonotope
@@ -352,7 +310,7 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]
     nonfinite = any(cache_nonfinite, values(cache.bounds_cache)) ||
         any(isnan, zono_bounds(Zout.∂Z)) || any(isnan, zono_bounds(Zout.Z₁)) || any(isnan, zono_bounds(Zout.Z₂))
-    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done, stop, nothing)
+    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done, stop, nothing, crows)
 end
 
 layer_by_idx(S::Session, k::Int) = (i = findfirst(l -> l.layer_idx == k, get_layers(S.N));

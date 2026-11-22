@@ -540,6 +540,97 @@ end
     end
 end
 
+@testset "Bound rows (VeryDiff.BOUND_ROWS): sound caches; the checker computes the same caches" begin
+    name = "safe_mid"
+    S = open_session(INST[name]["net1"], INST[name]["net2"], INST[name]["spec"],
+                     Dict("kind" => "epsilon", "epsilon" => INST[name]["epsilon"]); fallback=true,
+                     bound_rows=50, bound_rows_rtol=0.0)
+    check!(S, 1)
+    k = S.relu_layers[1]
+    bc0 = S.nodes[1].cache_out.bounds_cache[k]
+    j = argmax(bc0.upper₁ .- bc0.lower₁)
+    t = (bc0.lower₁[j] + bc0.upper₁[j]) / 2
+    kids = split_relu!(S, 1, k, j; var="z1", t=t)["children"]
+    rng = MersenneTwister(12)
+    nin = 0
+    for (side, c) in enumerate(kids)
+        n = S.nodes[c]
+        res = K.run_propagation(S, n.region, n.cache_in, Int[], nothing; constraints=n.constraints)
+        @test !isempty(res.crows)
+        # the checker's own implementation gives the same caches
+        seeds = Dict(k => [CertChecker.threshold_constraint("z1", j, t, side)])
+        rc = CertChecker.propagate(S.N, n.region.lo, n.region.hi, S.active_dims, n.cache_in, seeds, nothing;
+                                   constraints=seeds, bound_rows=(50, 0.0))
+        for kk in S.relu_layers
+            a = res.cache.bounds_cache[kk]; b = rc.cache.bounds_cache[kk]
+            for f in (:lower₁, :upper₁, :lower₂, :upper₂, :∂lower, :∂upper)
+                @test isapprox(getfield(a, f), getfield(b, f); rtol=1e-9, atol=1e-12)
+            end
+        end
+        # sampled concrete values of the child's region lie inside the caches
+        for _ in 1:300
+            x = S.root_box.lo .+ rand(rng, length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo)
+            ep = eval_point(S, x)
+            h = ep["hidden_preact"][string(k)]["n1"][j]
+            (side == 1 ? h <= t : h >= t) || continue
+            nin += 1
+            for kk in S.relu_layers
+                bc = res.cache.bounds_cache[kk]
+                h1 = ep["hidden_preact"][string(kk)]["n1"]; h2 = ep["hidden_preact"][string(kk)]["n2"]
+                @test all(bc.lower₁ .- 1e-9 .<= h1 .<= bc.upper₁ .+ 1e-9)
+                @test all(bc.lower₂ .- 1e-9 .<= h2 .<= bc.upper₂ .+ 1e-9)
+                @test all(bc.∂lower .- 1e-9 .<= h1 .- h2 .<= bc.∂upper .+ 1e-9)
+            end
+        end
+    end
+    @test nin > 100
+    for c in kids
+        S.nodes[c].kind == :open && auto_expand!(S, c; max_nodes=100000)
+    end
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, name), "ACCEPT")
+
+    # Inherited caches (plain input splitting): on safe_hard, the rows tighten the caches of a few nodes. There
+    # the kernel and the checker must agree, and the caches must be sound.
+    i = INST["safe_hard"]
+    S = open_session(i["net1"], i["net2"], i["spec"], Dict("kind" => "epsilon", "epsilon" => i["epsilon"]);
+                     bound_rows=1000, bound_rows_rtol=0.0)
+    auto_expand!(S, 1; max_nodes=200)
+    ntight = 0
+    for id in sort(collect(keys(S.nodes)))
+        n = S.nodes[id]
+        res = K.run_propagation(S, n.region, n.cache_in, Int[], nothing)
+        S.bound_rows = 0
+        res0 = K.run_propagation(S, n.region, n.cache_in, Int[], nothing)
+        S.bound_rows = 1000
+        tight = any(kk -> (a = res.cache.bounds_cache[kk]; b = res0.cache.bounds_cache[kk];
+                           any(a.upper₁ .< b.upper₁ .- 1e-9) || any(a.lower₁ .> b.lower₁ .+ 1e-9) ||
+                           any(a.∂upper .< b.∂upper .- 1e-9) || any(a.∂lower .> b.∂lower .+ 1e-9)), S.relu_layers)
+        tight || continue
+        ntight += 1
+        rc = CertChecker.propagate(S.N, n.region.lo, n.region.hi, S.active_dims, n.cache_in,
+                                   Dict{Int,Vector{CertChecker.Seed}}(), nothing; bound_rows=(1000, 0.0))
+        for kk in S.relu_layers
+            a = res.cache.bounds_cache[kk]; b = rc.cache.bounds_cache[kk]
+            for f in (:lower₁, :upper₁, :lower₂, :upper₂, :∂lower, :∂upper)
+                @test isapprox(getfield(a, f), getfield(b, f); rtol=1e-9, atol=1e-12)
+            end
+        end
+        for _ in 1:200
+            x = n.region.lo .+ rand(rng, length(n.region.lo)) .* (n.region.hi .- n.region.lo)
+            ep = eval_point(S, x)
+            for kk in S.relu_layers
+                bc = res.cache.bounds_cache[kk]
+                h1 = ep["hidden_preact"][string(kk)]["n1"]; h2 = ep["hidden_preact"][string(kk)]["n2"]
+                @test all(bc.lower₁ .- 1e-9 .<= h1 .<= bc.upper₁ .+ 1e-9)
+                @test all(bc.lower₂ .- 1e-9 .<= h2 .<= bc.upper₂ .+ 1e-9)
+                @test all(bc.∂lower .- 1e-9 .<= h1 .- h2 .<= bc.∂upper .+ 1e-9)
+            end
+        end
+    end
+    @test ntight >= 1
+end
+
 @testset "Relational (oblique) splits" begin
     name = "safe_hard"
     S = open_session(INST[name]["net1"], INST[name]["net2"], INST[name]["spec"],

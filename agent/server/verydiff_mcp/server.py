@@ -93,14 +93,17 @@ def _rat(r: str | None) -> str:
 # ====================================================================== session
 @mcp.tool()
 def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = False, fallback: bool = False,
-                 lp_relax: bool = False) -> Any:
+                 lp_relax: bool = False, bound_rows: int = 0) -> Any:
     """Open a proof session for ε-equivalence (max_i |N1(x)_i − N2(x)_i| ≤ ε for all x in the VNNLIB input box).
     The spec is fixed for the session. Returns the root node id and layer info (ReLU layers and widths).
     csb=True tightens every ReLU-input bound with z1 = z2 + d (always done on layers with splits/lemmas).
     fallback=True relaxes one-sided differential ReLU cases with the d-based relaxation when narrower (sound;
     recommended with split_relu, where fixing one phase can otherwise loosen the difference).
     lp_relax=True adds LP-relaxation rows (per-network triangles, identities d = z1 − z2 / t = a1 − a2, differential
-    chords) to the final check of every node: much tighter bounds, ~15x the cost of a plain propagation per check."""
+    chords) to the final check of every node: much tighter bounds, ~15x the cost of a plain propagation per check.
+    bound_rows=K (K > 0) keeps, per ReLU layer, the K cached bounds with the largest gap to the zonotope's own
+    bounds as rows, and uses them to tighten the bounds of later ReLU layers (single-row weak duality; so far no
+    measurable gain on ACAS or MNIST)."""
     for p in (net1, net2, spec):
         if not Path(p).is_file():
             return {"error": "io", "message": f"file not found: {p}"}
@@ -108,7 +111,7 @@ def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = Fa
         return {"error": "precondition", "message": "epsilon must be finite and >= 0"}
     paths = {k: str(Path(v).resolve()) for k, v in (("net1", net1), ("net2", net2), ("spec", spec))}
     r = _call("open_session", **paths, property={"kind": "epsilon", "epsilon": float(epsilon)}, csb=bool(csb),
-              fallback=bool(fallback), lp_relax=bool(lp_relax))
+              fallback=bool(fallback), lp_relax=bool(lp_relax), bound_rows=int(bound_rows))
     if "error" not in r:
         _state["session"] = {**paths, "epsilon": epsilon, "spec_hash": r.get("spec_hash")}
         if os.environ.get("VDA_SANDBOX", "1") != "0":
