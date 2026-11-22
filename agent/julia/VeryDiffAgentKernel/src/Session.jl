@@ -176,7 +176,8 @@ function lemma_proven(S::Session, L::Int; stack::Set{Int}=Set{Int}())
     lem.refuted && return false
     L in stack && kerr("internal", "circular lemma dependency through lemma $L")
     push!(stack, L)
-    r = is_closed(S, S.obligations[lem.obligation].root; stack=stack)
+    root = S.obligations[lem.obligation].root
+    r = is_closed(S, root; stack=stack) && all(L2 -> lemma_proven(S, L2; stack=stack), S.nodes[root].lemmas_in_scope)
     delete!(stack, L)
     return r
 end
@@ -224,8 +225,17 @@ function validate_tree(S::Session)
         else
             isempty(n.children) || kerr("internal", "leaf $id has children")
         end
-        # non-circularity: every in-scope lemma was introduced at an ancestor in the same obligation
+        # non-circularity: every in-scope lemma was introduced at an ancestor in the same obligation, or is
+        # inherited by the obligation root (lemma chaining: exactly the lemmas in scope at its assume node).
+        root_id = S.obligations[n.obligation].root
+        inherited = S.nodes[root_id].lemmas_in_scope
+        if n.id == root_id && o.kind == :lemma
+            sn = S.nodes[S.lemmas[o.lemma].scope_node]
+            Set(inherited) == Set(sn.lemmas_in_scope) || kerr("internal", "lemma root $id inherits a wrong lemma scope")
+            o.lemma in inherited && kerr("internal", "lemma $(o.lemma) in scope of its own proof")
+        end
         for L in n.lemmas_in_scope
+            L in inherited && continue
             lem = S.lemmas[L]
             a = S.nodes[lem.scope_node]
             a.obligation == n.obligation || kerr("internal", "lemma $L used outside the obligation it was introduced in")

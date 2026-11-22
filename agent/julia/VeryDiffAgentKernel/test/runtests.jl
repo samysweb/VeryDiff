@@ -198,6 +198,46 @@ end
     @test refute_lemma!(S2, r3["lemma"], x .+ 100.0)["refuted"] == false || true
 end
 
+@testset "Lemma chaining" begin
+    S = open_case("safe_mid")
+    root = S.obligations[S.main_obligation].root
+    k1, k2 = S.relu_layers[1], S.relu_layers[end]
+    lo1, hi1 = root_lemma_bounds(S, k1, [1, 2, 3, 4])
+    r1 = introduce_lemma!(S, root, k1, [1, 2, 3, 4], lo1, hi1)
+    L1, c1 = r1["lemma"], r1["child"]
+    # bounds at the deeper layer computed *with* L1 seeded (the child has L1 in scope)
+    res = K.inspect_propagation(S, S.nodes[c1]; stop=k2)
+    b = K.zono_bounds(res.Zout.∂Z)
+    r2 = introduce_lemma!(S, c1, k2, [1, 2], b[1:2, 1] .- 1e-9, b[1:2, 2] .+ 1e-9)
+    L2, c2 = r2["lemma"], r2["child"]
+    l2root = S.nodes[r2["lemma_root"]]
+    @test L1 in l2root.lemmas_in_scope               # the proof of L2 may use L1
+    @test l2root.cache_in.bounds_cache !== S.nodes[c1].cache_in.bounds_cache
+    @test K.validate_tree(S)
+    prove_lemma!(S, L2; max_nodes=10_000)
+    @test is_closed(S, l2root.id)
+    @test K.lemma_status(S, L2) == "open"            # L1 not yet proven
+    prove_lemma!(S, L1; max_nodes=10_000)
+    @test K.lemma_status(S, L1) == "proven" && K.lemma_status(S, L2) == "proven"
+    auto_expand!(S, c2; max_nodes=100_000)
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, "safe_mid"), "ACCEPT SAFE")
+    # mutation: drop L1's proof (its root becomes an open leaf) -> L2 and the main proof must fail
+    res = check_cert(S, "safe_mid"; mutate=c -> begin
+        lr = only(o["root"] for o in c["obligations"] if o["target"] == "lemma:$L1")
+        byid = Dict(e[1] => e for e in c["nodes"])
+        under(x) = (y = byid[x][2]; while y != 0; y == lr && return true; y = byid[y][2]; end; false)
+        c["nodes"] = [e for e in c["nodes"] if !under(e[1])]
+        for e in c["nodes"]; e[1] == lr && (e[4] = "o"; e[5] = Dict()); end
+        for l in c["lemmas"]; l["status"] = "open"; end
+    end)
+    @test startswith(res, "REJECT")
+    # retracting L1 removes L2 (introduced below it) and its proof
+    retract_lemma!(S, L1)
+    @test isempty(S.lemmas) && S.nodes[root].kind == :open
+    @test K.validate_tree(S)
+end
+
 @testset "Cache hygiene: retract restores lemma-free bounds" begin
     S = open_case("safe_mid")
     root = S.obligations[S.main_obligation].root

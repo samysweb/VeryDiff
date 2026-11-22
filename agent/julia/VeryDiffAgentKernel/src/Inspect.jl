@@ -36,7 +36,8 @@ function closed_map(S::Session)
         haskey(lmemo, L) && return lmemo[L]
         lem = S.lemmas[L]
         lmemo[L] = false       # cycle guard (cannot happen by construction)
-        v = !lem.refuted && f(S.obligations[lem.obligation].root)
+        r = S.obligations[lem.obligation].root
+        v = !lem.refuted && f(r) && all(g, S.nodes[r].lemmas_in_scope)
         lmemo[L] = v
         return v
     end

@@ -50,6 +50,12 @@ leave behind a certificate that an independent checker accepts.
      (many `any_any`/unstable neurons in `inspect_layer`), then `prove_lemma`. A refuted lemma
      must be retracted. Lemmas are only useful if proving them is cheaper than what they save.
      See "Deriving lemmas" below.
+   - **Lemma chains.** A lemma's proof may use every lemma already in scope at the node where it is
+     introduced (and starts from that node's bounds cache). So when the relaxation blows up layer by
+     layer, prove bounds layer by layer: introduce L₁ at an early ReLU layer, then — in L₁'s child —
+     L₂ at a later layer whose proof is helped by L₁'s seed, and so on. Prove the chain from the front
+     (`prove_lemma` L₁ first); a lemma only counts as proven when all lemmas its proof used are proven.
+     Retracting a lemma also removes every lemma introduced below it.
    - `prune` to backtrack from a subtree that is not converging.
 6. If you suspect a violation, search for it (sampling/optimisation in the sandbox) and
    `submit_counterexample`.

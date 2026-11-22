@@ -92,8 +92,11 @@ JSON + NPZ), `sandbox_reset`.
 * **Lemmas** (∂ / N1 / N2 bounds at a ReLU input) seed the cache before that ReLU is propagated
   (an uninitialised cache is first set to ±∞ and marked initialised, otherwise VeryDiff overwrites the
   seed). A lemma is its own obligation over the scope node's region, proven by prefix propagation
-  (`LemmaBoundsAdapter`). Lemma trees start from an empty cache and may only use lemmas introduced
-  inside them, so there are no cycles (also asserted by `validate_tree` and the checker).
+  (`LemmaBoundsAdapter`). **Lemma chaining:** a lemma's proof tree inherits the lemmas in scope at its
+  assume node and that node's bounds cache, so bounds can be proven layer by layer. This is non-circular:
+  inherited lemmas were introduced earlier and their proofs cannot mention the new lemma. A lemma counts as
+  proven only if its tree is closed *and* every inherited lemma is proven (kernel and checker; the checker
+  also detects cycles). Retracting a lemma deletes every lemma introduced below its assume node.
 * **Closure is derived**: closed leaf, or all children closed and (for `assume`) the lemma proven.
   SAFE ⟺ main root closed. There is no close/drop action. UNSAFE needs a concretely re-evaluated cex.
 * **Guards:** a node is never closed if a cache becomes inconsistent (lower > upper, e.g. from a false

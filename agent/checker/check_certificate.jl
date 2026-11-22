@@ -262,6 +262,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
 
     # replay, top-down, per obligation
     region = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
+    # lemma chaining: a lemma's proof starts from the cache and lemma scope of its assume node
+    lemma_init = Dict{Int,Tuple{TaskBounds,Vector{Int}}}()
     obl_of = Dict{Int,Int}()
     verified_leaf = Dict{Int,Bool}()
     region[mains[1].root] = (copy(lo0), copy(hi0))
@@ -270,7 +272,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
     # a lemma obligation's root region equals its scope node's region; process main first, then
     # lemma obligations whose scope node has been reached.
     function replay(o)
-        stack = [(o.root, TaskBounds(), Int[])]
+        init = o.kind == "main" ? (TaskBounds(), Int[]) : lemma_init[o.root]
+        stack = [(o.root, deepcopy(init[1]), copy(init[2]))]
         adapter_stop = o.kind == "main" ? nothing : lemmas[parse(Int, split(o.target, ":")[2])].layer
         lem_self = o.kind == "main" ? nothing : lemmas[parse(Int, split(o.target, ":")[2])]
         while !isempty(stack)
@@ -325,6 +328,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
                 # the lemma's proof root region is this node's region
                 lr = obls[lemmas[L].obligation].root
                 region[lr] = (copy(lo), copy(hi))
+                L in scope && reject("lemma $L in scope of its own assume node")
+                lemma_init[lr] = (deepcopy(out_cache), copy(scope))
             end
         end
     end
@@ -357,7 +362,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
         haskey(lmemo, L) && return lmemo[L]
         L in onstack && reject("circular lemma dependency at lemma $L")
         push!(onstack, L)
-        v = closed(obls[lemmas[L].obligation].root)
+        lr = obls[lemmas[L].obligation].root
+        v = closed(lr) && all(proven, lemma_init[lr][2])   # inherited lemmas must be proven too
         delete!(onstack, L)
         lmemo[L] = v
         return v
