@@ -9,6 +9,7 @@
 #
 # What this checker trusts:
 #   - VeryDiff's layer transformers (init_layer!, propagate_layer!), zono_bounds and the epsilon property.
+#   - VeryDiff's dual bounds and bound rows (dual_tighten!, collect_bound_rows! in src/Transformers/BoundRows.jl).
 #   - VNNLib.jl for ONNX and VNNLIB parsing, and compute_all_outputs for concrete evaluation.
 #   - Float64 arithmetic.
 #
@@ -16,7 +17,7 @@
 #   - Any value in the certificate that it can compute itself. It recomputes the spec hash, every region,
 #     every propagation, every bound and the closure of the proof tree.
 #   - The kernel. The checker does not load the kernel module. It contains its own implementation of boxes,
-#     cache seeding, contraction, dual-tightened bounds, LP rows and closure.
+#     cache seeding, contraction, LP rows and closure.
 #
 # The certificate format is described in agent/docs/certificate_format.md.
 #
@@ -41,7 +42,7 @@ using VeryDiff
 using VeryDiff.Definitions: VerificationTask, PropState, BoundsCache, TaskBounds, get_layers, get_inputs,
     get_outputs, get_zonos_at_pos, first_pass, configure_first_usage!, zonos_initialized,
     prepare_prop_state!, resize_zonotope_storage!, get_zonotope, zono_bounds, sort_network, executable_network
-using VeryDiff.Transformers: init_layer!, propagate_layer!
+using VeryDiff.Transformers: init_layer!, propagate_layer!, BoundRow, dual_tighten!, collect_bound_rows!
 
 
 # =====================================================================================================
@@ -352,6 +353,8 @@ end
 # A case-split constraint lo ≤ c + g·ε ≤ hi holds for every concrete input of the node. Two methods use it:
 #   - Contraction: make the noise box [−1, 1]^m smaller, then rescale all live zonotopes to the new box.
 #   - Dual bounds: for any λ ≥ 0, u = c_u + g_u·ε ≤ c_u + Σ|g_u − λ g| + λ (hi − c). Use the best λ.
+#     VeryDiff computes them (src/Transformers/BoundRows.jl). The same function uses the bound rows: cached bounds
+#     that are tighter than the zonotope's own bounds (option bound_rows; VeryDiff selects them).
 
 """
 Make the box [lo, hi] smaller with the constraint g·ε ≤ rhs.
@@ -449,106 +452,30 @@ function contract!(P, Zi, seeds::Vector{Seed})
     return false
 end
 
-"""
-min over λ ≥ 0 of Σ|g − λa| + λβ. The function is convex and piecewise linear in λ. Its minimum is at one of
-the break points g_i / a_i: walk them in increasing order until the slope is no longer negative.
-"""
-function best_dual_value(g, a, β)
-    value_at_zero = sum(abs, g)
-    isfinite(β) || return value_at_zero
-    slope = β
-    break_points = Tuple{Float64,Float64}[]
-    for i in eachindex(a)
-        a[i] == 0.0 && continue
-        l = g[i] / a[i]
-        if l > 0
-            slope -= abs(a[i])
-            push!(break_points, (l, abs(a[i])))
-        else
-            slope += abs(a[i])
-        end
-    end
-    slope >= 0 && return value_at_zero
-    sort!(break_points; by=first)
-    λ = 0.0
-    for (l, w) in break_points
-        λ = l
-        slope += 2w
-        slope >= 0 && break
-    end
-    return min(value_at_zero, sum(abs, g .- λ .* a) + λ * β)
-end
-
 """Find a layer by its index."""
 layer_with_index(N, k) = only(l for l in get_layers(N) if l.layer_idx == k)
 
 """Input zonotope of ReLU layer k in the propagation state P."""
 input_zonotope(P, N, k) = P.zono_storage.zonotopes[get_inputs(layer_with_index(N, k))[1]].zonotope
 
-"""
-Bound rows (option `bound_rows` = K > 0). A cached bound that is tighter than the zonotope's own bound is a true
-row: for example z_j ≤ u_j, with z_j = c + g·ε. After the tightening of ReLU layer k, keep the K bounds with the
-largest gap to the zonotope bound (relative to the width of the zonotope interval, only gaps > rtol). Ties go by
-variable (z1, z2, d), then neuron, then upper before lower. The rows are used for the dual bounds of the later
-ReLU layers. The kernel (VeryDiff `collect_bound_rows!`) uses the same rule. If a small difference in floating
-point gives a different selection, the bounds can only change slightly; they are sound in all cases.
-
-Each row is (layer, claim) with claim = ([(variable, neuron, ±1)], ±bound), as for linear_claims.
-"""
-function collect_bound_rows!(rows, bc, Zi, layer, K, rtol)
-    K > 0 || return
-    candidates = []
-    for (name, Z, lower, upper) in (("z1", Zi.Z₁, bc.lower₁, bc.upper₁), ("z2", Zi.Z₂, bc.lower₂, bc.upper₂),
-                                    ("d", Zi.∂Z, bc.∂lower, bc.∂upper))
-        var = findfirst(==(name), ("z1", "z2", "d"))
-        zb = zono_bounds(Z)
-        for j in eachindex(lower)
-            width = zb[j, 2] - zb[j, 1]
-            width > 1e-12 || continue
-            gap_upper = (zb[j, 2] - upper[j]) / width
-            gap_lower = (lower[j] - zb[j, 1]) / width
-            isfinite(upper[j]) && gap_upper > rtol && push!(candidates, (gap_upper, var, j, 0, ([(name, j, 1.0)], upper[j])))
-            isfinite(lower[j]) && gap_lower > rtol && push!(candidates, (gap_lower, var, j, 1, ([(name, j, -1.0)], -lower[j])))
-        end
-    end
-    sort!(candidates; by = x -> (-x[1], x[2], x[3], x[4]))
-    for x in Iterators.take(candidates, K)
-        push!(rows, (layer, x[5]))
-    end
-end
+const VARIABLE_INDEX = Dict("z1" => 1, "z2" => 2, "d" => 3)
 
 """
-Tighten the cache of ReLU layer k with the case-split constraints at layers ≤ k and the bound rows of layers < k
-(dual bounds, one row at a time).
+Tighten the cache of ReLU layer k by dual bounds (one row at a time). The rows are the case-split constraints at
+layers ≤ k and the bound rows collected at earlier layers (option `bound_rows`). The bound itself is computed by
+VeryDiff (`dual_tighten!` in src/Transformers/BoundRows.jl), which the checker trusts like VeryDiff's transformers.
 """
-function dual_tighten!(bc, P, N, Zi, k, constraints::Dict{Int,Vector{Seed}}, bound_rows=[])
-    claims = [(layer, claim) for (layer, list) in constraints if layer <= k for s in list for claim in linear_claims(s)]
-    append!(claims, [(layer, claim) for (layer, claim) in bound_rows if layer < k])
-    isempty(claims) && return
-    Zs = Any[Zi.∂Z, Zi.Z₁, Zi.Z₂]
-    for layer in unique(first.(claims))
+function tighten_with_rows!(bc, P, N, Zi, k, constraints::Dict{Int,Vector{Seed}}, bound_rows::Vector{BoundRow})
+    rows = BoundRow[]
+    for (layer, list) in constraints
+        layer <= k || continue
         Z = input_zonotope(P, N, layer)
-        append!(Zs, [Z.∂Z, Z.Z₁, Z.Z₂])
-    end
-    offset, m = column_layout(Zs)
-    rows = Tuple{Vector{Float64},Float64}[]                    # a·ε ≤ β
-    for (layer, (terms, rhs)) in claims
-        c, g = combination_row(input_zonotope(P, N, layer), terms, offset, m)
-        push!(rows, (g, rhs - c))
-    end
-    for (Z, lower, upper) in ((Zi.Z₁, bc.lower₁, bc.upper₁), (Zi.Z₂, bc.lower₂, bc.upper₂), (Zi.∂Z, bc.∂lower, bc.∂upper))
-        for j in eachindex(lower)
-            c, g = zonotope_row(Z, j, offset, m)
-            u = Inf
-            l = -Inf
-            for (a, β) in rows
-                u = min(u, c + best_dual_value(g, a, β))
-                l = max(l, c - best_dual_value(-g, a, β))
-            end
-            isfinite(u) && (upper[j] = min(upper[j], nextfloat(u + 1e-12 * abs(u))))
-            isfinite(l) && (lower[j] = max(lower[j], prevfloat(l - 1e-12 * abs(l))))
+        for s in list, (terms, rhs) in linear_claims(s)
+            push!(rows, BoundRow(Z, [(VARIABLE_INDEX[v], j, a) for (v, j, a) in terms], rhs))
         end
     end
+    append!(rows, bound_rows)
+    isempty(rows) || dual_tighten!(bc, Zi, rows)
 end
 
 
@@ -585,7 +512,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
     infeasible() = (Zin=nothing, Zout=nothing, cache=cache, valid=false, P=P, infeasible=true)
 
     Zout = nothing
-    collected = []
+    collected = BoundRow[]
     for L in layers
         if !isnothing(stop) && L.layer_idx == stop
             Zout = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
@@ -607,10 +534,10 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
         if L.layer1 isa ONNXRelu
             Zi = input_zonotopes[1]
             intersect_with_zonotope!(bc, Zi)
-            dual_tighten!(bc, P, N, Zi, L.layer_idx, constraints, collected)
+            tighten_with_rows!(bc, P, N, Zi, L.layer_idx, constraints, collected)
             (csb || haskey(seeds, L.layer_idx)) && consistency_tighten!(bc)
             has_empty_interval(bc) && return infeasible()
-            collect_bound_rows!(collected, bc, Zi, L.layer_idx, bound_rows...)
+            collect_bound_rows!(collected, bc, Zi, bound_rows...)
         end
         propagate_layer!(outputs, L, input_zonotopes; bounds_cache=bc)
     end

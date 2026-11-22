@@ -132,6 +132,40 @@ direction as the constraint.
 combine rows and cannot show that two constraints together have no solution (Farkas certificates would add
 this). It tightens the cached bounds, not the zonotope. The cost is O(m log m) for each unit and bound.
 
+**Code.** The dual bounds are VeryDiff's own code (`src/Transformers/BoundRows.jl`, `dual_tighten!`). The kernel and
+the checker both call it.
+
+**Bound rows.** A split constraint is only one source of rows: every cached bound that is tighter than the
+zonotope's own bound (c ± ‖g‖₁) is a valid row too. With the option `bound_rows` = K, VeryDiff keeps the K rows with
+the largest gap per ReLU layer and uses them for the dual bounds of the later layers. Result: no measurable gain
+(table below). A row on a single unit z_j rarely has the direction of a later unit's generators; the split row on r
+has, because r drives the whole difference.
+
+### Ablation: which mechanism matters
+
+Same bands, `fallback=true`; propagations of the search (the certificate needs 6 fewer when the band roots close
+during `auto_expand`). Bands without LP rows were run to completion; with LP rows the cap was 5000 checks per band
+(never reached).
+
+| Contraction | Dual bounds | Bound rows | LP rows | Propagations | Search time |
+|---|---|---|---|---|---|
+| on | on | off | on | **124** | 37 s |
+| on | on | K = 10 | on | 122 | 37 s |
+| off | on | off | on | 172 | 39 s |
+| off | on | K = 10 | on | 170 | 39 s |
+| on | off | off | on | 2582 | 88 s |
+| off | off | off | on | 5180 | 201 s |
+| on | on | off | off | 24,802 | 218 s |
+| on | on | K = 10 | off | 24,802 | 277 s |
+| off | on | off | off | 48,016 | 368 s |
+
+* Dual bounds are the most important mechanism after the LP rows (×21 without them).
+* Contraction is not redundant: ×1.4 with LP rows, ×1.9 without. It changes the zonotopes themselves; dual
+  bounds change only the cached bounds.
+* Bound rows do not help here. The 124 → 122 is noise in the LP multipliers: the checker accepts the K = 10
+  certificate also with bound rows off. On plain VeryDiff search they do not help either (ACAS 1483 → 1483; MNIST
+  plain search: no node's output bound changes).
+
 ### 4. Soundness notes
 
 * Every row used by the LP is a true relation between concrete values, evaluated on zonotope rows that one

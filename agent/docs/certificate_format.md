@@ -14,8 +14,8 @@ A complete small example with explanations: [`examples/example_certificate.jsonc
 
 The checker trusts nothing in the certificate except what it re-derives: it re-parses the networks and the spec,
 recomputes the spec hash, reconstructs every region from the spec box and the cuts, re-runs every propagation
-(VeryDiff's transformers plus its own re-implementations of seeding, contraction, dual-tightened bounds and
-LP-row construction), re-evaluates every LP bound from the given multipliers, and derives closure itself.
+(VeryDiff's transformers and dual bounds, plus its own re-implementations of seeding, contraction and LP-row
+construction), re-evaluates every LP bound from the given multipliers, and derives closure itself.
 Floats that may be infinite are encoded as the strings `"Infinity"` / `"-Infinity"`.
 
 ## Top level
@@ -29,7 +29,7 @@ Floats that may be infinite are encoded as the strings `"Infinity"` / `"-Infinit
 | `property` | `{"kind": "epsilon", "epsilon": ε}` (only kind supported by the checker) |
 | `files` | basenames of net1, net2, spec (informational) |
 | `softmax_removed` | whether a final Softmax was dropped (ε refers to the pre-Softmax outputs); must match |
-| `options` | `{"csb": bool, "fallback": bool, "lp_relax": bool}`: consistency tightening z1 = z2 + d on every ReLU layer; VeryDiff's `ONE_SIDED_DIFF_FALLBACK` flag; whether LP leaves may use relaxation rows |
+| `options` | `{"csb": bool, "fallback": bool, "lp_relax": bool, "bound_rows": K, "bound_rows_rtol": r}`: consistency tightening z1 = z2 + d on every ReLU layer; VeryDiff's `ONE_SIDED_DIFF_FALLBACK` flag; whether LP leaves may use relaxation rows; VeryDiff's `BOUND_ROWS` / `BOUND_ROWS_RTOL` (bound rows per ReLU layer, 0 = off; missing = 0 / 0.05) |
 | `status` | `SAFE`, `UNSAFE` or `PARTIAL` |
 | `spec_box` | `{"lo": [...], "hi": [...]}`, must equal the VNNLIB box |
 | `active_dims` | 1-based input dimensions with lo < hi |
@@ -70,6 +70,12 @@ propagation below the split the checker (1) contracts the shared noise box with 
 live zonotopes, (2) seeds the bounds cache of layer `k` with the bound, (3) tightens every later ReLU layer's
 cached z1/z2/d bounds by single-row weak duality with the constraint rows, and (4) applies z1 = z2 + d
 consistency tightening on seeded layers.
+
+With `options.bound_rows` = K > 0, every propagation also collects bound rows: after the tightening of a ReLU layer,
+the K cached bounds with the largest gap to the zonotope's own bound (relative to the zonotope interval width, gap >
+`bound_rows_rtol`) become rows such as z_j ≤ u_j. They are used, like the constraint rows, for the dual bounds of
+all later ReLU layers. The dual bounds and the row selection are VeryDiff's own code
+(`src/Transformers/BoundRows.jl`); the checker calls it.
 
 ### Closed leaves
 

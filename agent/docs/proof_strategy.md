@@ -27,7 +27,9 @@ finally by reading the weights. Detailed numbers are in the experiments branch (
 2. **Case-split on the driving hidden quantity, not on inputs.** Bands of r are oblique cuts in input space
    that VeryDiff cannot express; four of ten bands closed with a single propagation each.
 3. **Make the constraint count everywhere below the split:** contraction, dual-tightened intermediate bounds
-   and the split rows in the final LP. Without the dual-tightened bounds the bands did not help.
+   and the split rows in the final LP. Without the dual-tightened bounds the bands did not help; without
+   contraction the short proof needs 40 % more propagations (`mnist_proof.md`, ablation). Bound rows (cached
+   bounds as extra rows, option `bound_rows`) gave nothing measurable.
 4. **Tighten the final check where the abstraction loses correlation:** the LP-relaxation rows (triangles,
    identities, differential chords) took the hard band from 6905 to 13 propagations.
 5. **Measure the true margin early.** Optimising the real networks per region (cheap, numpy/scipy) tells you

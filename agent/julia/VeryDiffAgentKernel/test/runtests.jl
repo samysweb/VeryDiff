@@ -732,7 +732,7 @@ end
         "cut moved" => c -> (e = c["nodes"][split_(c)]; e[5]["c"] = (e[6][1][e[5]["d"]] + e[5]["c"]) / 2),
         "cut outside" => c -> (e = c["nodes"][split_(c)]; e[5]["c"] = e[6][2][e[5]["d"]] + 1.0),
         "child box widened" => c -> (e = c["nodes"][leaf(c)]; e[6][1][1] -= 0.01),
-        "wrong spec hash" => c -> (c["spec_hash"] = "00" * c["spec_hash"][3:end]),
+        "wrong spec hash" => c -> (h = c["spec_hash"]; c["spec_hash"] = (h[1] == '0' ? "1" : "0") * h[2:end]),
         "status forged" => c -> begin
             i = leaf(c); c["nodes"][i][4] = "o"; c["nodes"][i][5] = Dict()
         end,

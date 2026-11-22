@@ -134,7 +134,8 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 * `Float64` arithmetic **without outward rounding** inside the transformers; the one-ulp widening only
   closes the gap between the exact box and VeryDiff's centre/radius form.
 * VNNLib.jl ONNX and VNNLIB parsing; `compute_all_outputs` for concrete evaluation.
-* The checker (≈400 lines, re-implements boxes, outward conversion, seeding, closure).
+* The checker (re-implements boxes, outward conversion, seeding, contraction, LP rows, closure; uses VeryDiff for
+  the transformers and the dual bounds).
 * Spec binding: `spec_hash = sha256(net1, net2, spec, canonical property JSON, git tree hash of VeryDiff's src/)`
   (length-prefixed parts; `-dirty` suffix if `src/` has local changes).
 
@@ -144,6 +145,10 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 * `3541a7e5` "Optional monotone differential ReLU relaxation (flag ONE_SIDED_DIFF_FALLBACK, default off)": a unit
   whose fresh bounds give any_any but whose tighter cached bounds give a one-sided case keeps the d-based
   relaxation (sound since min(0, d) ≤ ReLU(z1) − ReLU(z2) ≤ max(0, d)). Kernel option `fallback`.
+* `526b6103` "Bound rows behind BOUND_ROWS flag (default off)": `src/Transformers/BoundRows.jl` holds the
+  single-row dual bounds (`dual_tighten!`) and the collection of bound rows (cached bounds tighter than the
+  zonotope's own bounds). The kernel and the checker use this code for all dual tightening (split constraints and
+  bound rows). CLI option `--bound-rows K`; kernel option `bound_rows`.
 
 ## Findings about VeryDiff
 
@@ -171,7 +176,7 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 
 | Test | Result |
 |---|---|
-| `VERYDIFF_NO_GUROBI=1 julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | 6796 pass, ≈ 5 min (regions, seeding, derived closure, differential vs CLI, k-way/partial, UNSAFE, lemmas, LP tightening, ReLU/threshold/relational splits with sampled soundness of the tightened caches, one-sided fallback, LP-relaxation rows valid at the witness, cache hygiene, checker mutations, RPC) |
+| `VERYDIFF_NO_GUROBI=1 julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | 32,104 pass, ≈ 5 min (regions, seeding, derived closure, differential vs CLI, k-way/partial, UNSAFE, lemmas, LP tightening, ReLU/threshold/relational splits with sampled soundness of the tightened caches, one-sided fallback, LP-relaxation rows valid at the witness, bound rows (kernel and checker caches agree, sampled soundness), cache hygiene, checker mutations, RPC) |
 | `python3 agent/tests/test_soundness.py` | 0 violations in ≈19.7 M sampled points over 4 SAFE certificates (one with a proven lemma) |
 | `python3 agent/tests/test_e2e.py [--sandbox]` | MCP → kernel → certificate → checker ACCEPT for SAFE and UNSAFE; sandbox has no network, `/exports` read-only, VeryDiff CLI runs inside |
 
