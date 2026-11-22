@@ -135,12 +135,31 @@ def split(node: int, dim: int, cut: float | None = None, cuts: list[float] | Non
 
 @mcp.tool()
 def auto_expand(node: int, max_nodes: int = 200, max_seconds: float = 30.0, heuristic: str = "verydiff",
-                rationale: str = "") -> Any:
-    """Run VeryDiff's branch-and-bound on all open leaves under `node` within a budget (heuristic: verydiff|widest).
-    Every split/closure is recorded in the tree. Returns closed/open counts and the worst distance bounds."""
-    cap = int(os.environ.get("VDA_MAX_AUTO_NODES", "200000"))
-    return _call("auto_expand", node=int(node), max_nodes=int(max(1, min(max_nodes, cap))),
+                per_leaf_max_nodes: int | None = None, rationale: str = "") -> Any:
+    """Run VeryDiff's branch-and-bound on the open leaves under `node` (heuristic: verydiff|widest).
+    Default: one best-first search over all of them with `max_nodes` checks in total.
+    With `per_leaf_max_nodes`: an independent search on EACH open leaf under `node` (e.g. "auto on all branches
+    after my manual splits"), `max_nodes` then caps the total. Every split/closure is recorded in the tree."""
+    return _call("auto_expand", node=int(node), max_nodes=int(max(1, min(max_nodes, 200000))),
+                 per_leaf_max_nodes=None if per_leaf_max_nodes is None else int(max(1, per_leaf_max_nodes)),
                  max_seconds=float(max(0.1, min(max_seconds, 3600))), heuristic=heuristic, rationale=_rat(rationale))
+
+
+@mcp.tool()
+def batch(actions: list[dict], stop_on_error: bool = True) -> Any:
+    """Run several proof/inspection actions in one call, in order, e.g. a split plan followed by auto_expand.
+    Each action is {"method": <tool name>, "params": {...}} with the same parameters as the individual tool and is
+    checked by the kernel exactly as if sent alone. A node parameter may reference children of an earlier split in
+    the batch: "$k.children[i]" (k = 1-based action index). Allowed: check, split, auto_expand, introduce_lemma,
+    prove_lemma, retract_lemma, refute_lemma, prune, submit_counterexample, and read-only inspection tools."""
+    if not isinstance(actions, list) or not actions or len(actions) > 500:
+        return {"error": "precondition", "message": "actions must be a non-empty list (max 500)"}
+    for a in actions:
+        if not isinstance(a, dict) or "method" not in a:
+            return {"error": "precondition", "message": "each action needs a 'method' (and optional 'params')"}
+        if "rationale" in a.get("params", {}):
+            a["params"]["rationale"] = _rat(a["params"]["rationale"])
+    return _call("batch", actions=actions, stop_on_error=bool(stop_on_error))
 
 
 @mcp.tool()

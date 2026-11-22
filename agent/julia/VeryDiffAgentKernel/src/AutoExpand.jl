@@ -78,3 +78,36 @@ function auto_expand!(S::Session, node::Int; max_nodes::Int=1000, max_seconds::F
             "verdict" => session_verdict(S))
     end
 end
+
+"""Per-leaf mode: run an independent best-first search (budget `per_leaf_max_nodes`) on every open leaf
+under `node` that exists when the call starts, until the global `max_nodes`/`max_seconds` budget is used.
+Equivalent to calling auto_expand on each branch, in one action."""
+function auto_expand_per_leaf!(S::Session, node::Int; per_leaf_max_nodes::Int=100, max_nodes::Int=100_000,
+                               max_seconds::Float64=60.0, heuristic::AbstractString="verydiff",
+                               rationale::AbstractString="")
+    getnode(S, node)
+    log_action!(S, "auto_expand", Dict("node" => node, "per_leaf_max_nodes" => per_leaf_max_nodes,
+        "max_nodes" => max_nodes, "max_seconds" => max_seconds, "heuristic" => heuristic), rationale)
+    t0 = time()
+    leaves = open_leaves_below(S, node)
+    used = 0
+    per = Dict{String,Any}[]
+    for x in leaves
+        remaining = max_nodes - used
+        tleft = max_seconds - (time() - t0)
+        (remaining <= 0 || tleft <= 0) && break
+        haskey(S.nodes, x) && S.nodes[x].kind == :open || continue
+        r = auto_expand!(S, x; max_nodes=min(per_leaf_max_nodes, remaining), max_seconds=tleft,
+                         heuristic=heuristic, log=false)
+        used += r["checked"]
+        push!(per, Dict("leaf" => x, "checked" => r["checked"], "closed" => r["subtree_closed"], "open_leaves" => r["open_leaves"]))
+        r["stop_reason"] in ("counterexample", "lemma_refuted") && break
+    end
+    rem = open_leaves_below(S, node)
+    dbs = sort([S.nodes[i].distance_bound for i in rem]; rev=true)
+    return Dict{String,Any}("node" => node, "leaves_processed" => length(per), "leaves_at_start" => length(leaves),
+        "checked" => used, "leaves_closed" => count(d -> d["closed"], per),
+        "unclosed_leaves" => [d["leaf"] for d in per if !d["closed"]][1:min(end, 30)],
+        "open_leaves" => length(rem), "worst_distance_bounds" => dbs[1:min(5, end)],
+        "subtree_closed" => is_closed(S, node), "seconds" => round(time() - t0; digits=3), "verdict" => session_verdict(S))
+end
