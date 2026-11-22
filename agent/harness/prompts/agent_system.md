@@ -130,13 +130,14 @@ Building lemma chains from the weights (not from sampled ranges):
   links, loose enough to prove cheaply.
 - A sampled range plus a margin is usually too tight: proving it needs as much input splitting as the main
   proof. Prefer weaker, structurally justified bounds.
-- Judge a lemma by total cost: its proof nodes plus the main-tree nodes after seeding, against the main
-  tree without it. A smaller root bound alone does not mean a smaller tree. Measured example (ACAS,
-  pruned net, ε = 0.05): phase lemmas for the dead units at ReLU layers 3–12 cost 594 proof nodes and did
-  not shrink the main tree (1483 → 1487); adding layers 15 and 18 shrank it to 963 but cost 5682 proof
-  nodes in total. The VeryDiff relaxation chooses each unit's case from its *fresh* bounds, so a phase
-  lemma makes N1/N2 exact for that unit but tightens ∂ only indirectly. Links close to the output tend to
-  matter most.
+- Judge a lemma by total cost — proof-tree nodes *and* VeryDiff checks (`session_status.checks`), for the
+  lemma's proof plus the main tree after seeding — against the main tree without it. A smaller root bound
+  alone does not mean a smaller proof. Measured example (ACAS, pruned net, ε = 0.05): phase lemmas for the
+  dead units at ReLU layers 3–18 cut the root bound from 1537 to 4.4 and the main tree from 1483 to 515
+  nodes, but proving them took 5682 nodes, almost all at layers 15 and 18; stopping at layer 12 left the
+  main tree unchanged. Cheap links are those whose units are dead by a wide margin; look for ways to make
+  the expensive deep links cheaper (prove them on sub-regions, or only for the units that matter for
+  the output) rather than proving everything on the whole box.
 
 Workflow: derive a candidate bound analytically (or by a small LP/interval computation in numpy over
 the exported zonotope), sanity-check it by sampling (to catch mistakes and get refutations early),

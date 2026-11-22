@@ -49,13 +49,16 @@ def load_instances(path: Path):
 
 OBJECTIVES = {
     "verdict": "",
-    "min-nodes": ("\nObjective: besides a correct verdict, MINIMISE the total number of proof-tree nodes "
-                  "(session_status.total_nodes). auto_expand is capped at 100 nodes per search (per leaf with "
-                  "per_leaf_max_nodes). Follow the required weight-analysis step: write the weight report and "
-                  "weight-derived hypotheses BEFORE planning splits, and derive splits/lemmas from them rather than "
-                  "from search over VeryDiff runs. Justify each action in its rationale by the hypothesis it uses."),
+    "min-cost": ("\nObjective: besides a correct verdict, MINIMISE the proof cost, measured as BOTH the total number of "
+                 "proof-tree nodes (session_status.total_nodes) and the number of VeryDiff checks done by proof actions "
+                 "(session_status.checks; failed checks, lemma proofs and pruned work all count). auto_expand is capped "
+                 "at 100 nodes per search (per leaf with per_leaf_max_nodes). Follow the required weight-analysis step: "
+                 "write the weight report and weight-derived hypotheses BEFORE planning splits, and derive splits/lemmas "
+                 "from them rather than from search over VeryDiff runs. Justify each action by the hypothesis it uses."),
 }
-MAX_AUTO = {"verdict": None, "min-nodes": "100"}
+MAX_AUTO = {"verdict": None, "min-cost": "100"}
+OBJECTIVES["min-nodes"] = OBJECTIVES["min-cost"]   # backwards-compatible alias
+MAX_AUTO["min-nodes"] = MAX_AUTO["min-cost"]
 
 
 def server_config(work: Path, cert: Path, objective: str = "verdict") -> dict:
@@ -209,7 +212,9 @@ def cert_stats(cert: Path) -> dict:
     auto = C["stats"]["auto_nodes"]
     return {"status": C["status"], "nodes": nodes, "auto_nodes": auto, "manual_nodes": nodes - auto,
             "lemmas_proposed": proposed, "lemmas_proven": proven, "lemmas_used": len(C["lemmas"]),
-            "proof_actions": len(C["log"]), "cert_bytes": len(raw), "kernel_seconds": C["stats"]["kernel_seconds"]}
+            "proof_actions": len(C["log"]), "cert_bytes": len(raw), "kernel_seconds": C["stats"]["kernel_seconds"],
+            "checks": C["stats"].get("checks"), "propagations": C["stats"].get("propagations"),
+            "inspection_propagations": C["stats"].get("inspection_propagations")}
 
 
 # ----------------------------------------------------------------------------- main

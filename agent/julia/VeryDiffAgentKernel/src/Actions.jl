@@ -15,6 +15,7 @@ function do_check!(S::Session, n::Node)
     t = time()
     res = run_propagation(S, n.region, n.cache_in, n.lemmas_in_scope, stop_layer(a);
                           verification_status=n.verification_status)
+    S.n_checks += 1
     sat, cex, heur, status′, db = adapter_check(a, S.X1, S.X2, res.Zin, res.Zout, n.verification_status)
     n.cache_out = res.cache                         # owned: run_propagation deep-copied cache_in
     n.distance_bound = db

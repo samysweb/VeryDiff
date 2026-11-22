@@ -41,3 +41,8 @@
 * Phase-lemma chain measured directly (no LLM): dead units at ReLU 3–18 as chained phase lemmas → main tree
   963 nodes (vs 1483) but 5682 lemma-proof nodes; chains up to layer 9/12 cost 293/594 proof nodes and leave
   the main tree unchanged (1486/1487). Certificate of the full chain: checker ACCEPT (6645 nodes, 6 lemmas).
+* After the `src/` change "ReLU diff transformer: compute phase cases from cached bounds" (direct measurement,
+  ACAS prop_16, phase-lemma chains; nodes / checks):
+  plain VeryDiff 1483 / 1483 (unchanged); chain 3–12: main 1487 + lemmas 594 = 2081 nodes / 2082 checks;
+  chain 3–18: root bound 1537 → 4.4, main 515 + lemmas 5682 = 6197 nodes / 6198 checks (before the change:
+  main 963). Checker ACCEPT; soundness fuzz (5.1 M points, incl. phase-lemma bounds): 0 violations.

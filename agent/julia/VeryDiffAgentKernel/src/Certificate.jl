@@ -64,7 +64,8 @@ function certificate(S::Session)
         "cex" => isnothing(S.cex) ? nothing : Dict("x" => S.cex["x"], "n1" => S.cex["y1"], "n2" => S.cex["y2"], "dist" => S.cex["dist"]),
         "log" => S.log,
         "stats" => Dict("nodes" => length(S.nodes), "auto_nodes" => count(n -> n.created_by == :auto, values(S.nodes)),
-                        "kernel_seconds" => round(S.kernel_time; digits=3), "propagations" => S.n_propagations))
+                        "kernel_seconds" => round(S.kernel_time; digits=3), "propagations" => S.n_propagations,
+                        "checks" => S.n_checks, "inspection_propagations" => S.n_propagations - S.n_checks))
 end
 
 function export_certificate(S::Session, path::AbstractString)

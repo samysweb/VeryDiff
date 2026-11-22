@@ -87,7 +87,9 @@ function session_status(S::Session)
         "cex" => isnothing(S.cex) ? nothing : Dict("x" => r6(S.cex["x"]), "dist" => r6(S.cex["dist"])),
         "total_nodes" => length(S.nodes),
         "kernel_seconds" => round(S.kernel_time; digits=2),
-        "propagations" => S.n_propagations)
+        "propagations" => S.n_propagations,
+        "checks" => S.n_checks,
+        "cost_note" => "cost = total_nodes and checks (VeryDiff propagations by proof actions); inspection propagations are counted separately")
 end
 
 function layer_table(S::Session)
