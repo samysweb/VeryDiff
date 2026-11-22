@@ -302,7 +302,15 @@ function read_weights(S::Session, layer_idx::Int; which::AbstractString="diff", 
     L = layer_by_idx(S, layer_idx)
     l1, l2 = L.layer1, L.layer2
     if hasproperty(l1, :dense)
-        W1, b1, W2, b2 = l1.dense.weight, l1.dense.bias, l2.dense.weight, l2.dense.bias
+        W1, b1, W2, b2 = l1.dense.weight, copy(l1.dense.bias), l2.dense.weight, copy(l2.dense.bias)
+        # ONNX MatMul+Add graphs put the bias into a separate AddConst layer: fold it in so the affine map is complete.
+        layers = get_layers(S.N)
+        i = findfirst(x -> x.layer_idx == layer_idx, layers)
+        bias_note = "bias of this layer"
+        if i < length(layers) && hasproperty(layers[i+1].layer1, :c) && !hasproperty(layers[i+1].layer1, :dense)
+            b1 .+= layers[i+1].layer1.c; b2 .+= layers[i+1].layer2.c
+            bias_note = "bias folded in from the following AddConst layer $(layers[i+1].layer_idx)"
+        end
     elseif hasproperty(l1, :c)
         W1 = W2 = nothing; b1, b2 = l1.c, l2.c
     else
@@ -313,7 +321,7 @@ function read_weights(S::Session, layer_idx::Int; which::AbstractString="diff", 
     W = pick(W1, W2); b = pick(b1, b2)
     d = Dict{String,Any}("layer" => layer_idx, "type" => string(nameof(typeof(l1))), "which" => which)
     if !isnothing(W1)
-        ΔW = W1 .- W2; Δb = b1 .- b2
+        ΔW = W1 .- W2; Δb = b1 .- b2   # b1/b2 include a folded AddConst bias (see b_note)
         sv = svdvals(Matrix(ΔW))
         d["shape"] = collect(size(W1))
         d["diff_summary"] = Dict("frobenius" => r6(norm(ΔW)), "rel_frobenius" => r6(norm(ΔW) / max(norm(W1), eps())),
@@ -331,6 +339,7 @@ function read_weights(S::Session, layer_idx::Int; which::AbstractString="diff", 
             d["W"] = "omitted ($(length(R))×$(length(C)) > max_entries=$max_entries); pass rows/cols or use the sandbox"
         end
         d["b"] = round.(b[collect(R)]; digits=digits)
+        d["b_note"] = bias_note
     else
         d["c"] = round.(b; digits=digits)
     end
