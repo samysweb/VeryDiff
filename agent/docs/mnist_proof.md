@@ -90,6 +90,48 @@ margin is small: optimised maxima of diff₄ per band are 0.871, 0.882, 0.895, 0
 LP rows each band's bound stays at 1.06–1.13 and VeryDiff needs ~17 levels of input splitting; with them the
 bound of [0.975, 1.0] is already 1.021 at the band root and a handful of input splits close it.
 
+### Dual-tightened bounds: the idea
+
+**Problem.** A hidden case split such as "r ≤ 0.85" is a fact about the inputs of the node. VeryDiff does not
+know this fact. It calculates the bounds of each hidden unit from the zonotope of the whole input box. Thus a band
+node gets the same layer-2 bounds as the full box, the relaxation of each unstable unit stays wide, and the band
+does not help. Without dual tightening, the bands did not close.
+
+**Idea.** In one propagation, all quantities are affine functions of the same noise symbols ε ∈ [−1, 1]^m.
+The split constraint is one linear row a·ε ≤ β (for example r(ε) ≤ 0.85). A hidden unit is u(ε) = c + g·ε.
+For each λ ≥ 0:
+
+  u = c + (g − λa)·ε + λ·(a·ε) ≤ c + ‖g − λa‖₁ + λβ
+
+The first term is at most ‖g − λa‖₁ because |ε_i| ≤ 1. The second term is at most λβ because of the constraint.
+
+* λ = 0 gives VeryDiff's normal bound. A larger λ removes from g the part that has the direction of the
+  constraint. The constraint, not the box, limits that part.
+* The best λ is easy to find. The right side is convex and piecewise linear in λ, with break points at g_i / a_i.
+  Sort the break points and walk through them until the slope is not negative. No LP solver is necessary.
+* Lower bounds use the same method with −g.
+
+**Why it works here.** The layer-2 differences are d_j ≈ W[j, 45]·r (+ noise), so g is almost parallel to the
+constraint row of r. With the best λ, almost all of g cancels, and the bound of d_j becomes approximately
+W[j, 45]·[band] instead of W[j, 45]·[0.058, 1.133]. VeryDiff then relaxes each layer-2 unit over this narrow
+interval, and some units become stable.
+
+**Where it runs.** At each ReLU layer at or after the constraint's layer, for z1, z2 and d of every unit. The
+result goes into the bounds cache before VeryDiff's transformer runs.
+
+**Soundness.** The true values of each concrete input satisfy the constraint, and the inequality is true for each
+λ ≥ 0. Thus a bad λ only gives a looser bound, never a wrong one. The checker calculates λ and the bound again
+with its own code, with outward rounding.
+
+**Compared with contraction.** Contraction (the other use of the constraint) makes the interval of each noise
+symbol smaller, one symbol at a time. This is weak when the constraint has hundreds of symbols. Dual tightening
+uses the full direction of the constraint for each unit, so it is strong when a unit depends on the same
+direction as the constraint.
+
+**Limits.** It uses one constraint row at a time: with many splits it takes the best single row, so it cannot
+combine rows and cannot show that two constraints together have no solution (Farkas certificates would add
+this). It tightens the cached bounds, not the zonotope. The cost is O(m log m) for each unit and bound.
+
 ### 4. Soundness notes
 
 * Every row used by the LP is a true relation between concrete values, evaluated on zonotope rows that one
