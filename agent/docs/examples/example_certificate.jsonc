@@ -1,0 +1,149 @@
+// Example certificate with explanations.
+//
+// This is example_certificate.json with comments. Two long arrays are shortened (marked "…"); the .json file
+// has them in full, and the checker accepts it:
+//
+//   N=agent/tests/nets/safe_split
+//   julia --project=agent/julia/VeryDiffAgentKernel agent/checker/check_certificate.jl \
+//         agent/docs/examples/example_certificate.json $N/net1.onnx $N/net2.onnx $N/spec.vnnlib
+//   → ACCEPT SAFE nodes=5 lemmas=0
+//
+// make_example_certificate.jl makes the certificate. It uses the same features as the MNIST proof
+// (docs/mnist_proof.md): a case split on a hidden unit, an input split, a leaf that VeryDiff closes directly,
+// and leaves that close only with LP evidence (split constraint + relaxation rows).
+//
+// The proof tree:
+//
+//   node 1  split on hidden unit: z1[1] at ReLU layer 3, threshold −0.33       (not propagated)
+//   ├── node 2  z1[1] ≤ −0.33: closed by VeryDiff                              (1 propagation)
+//   └── node 3  z1[1] ≥ −0.33: still open → input split x1 at 0.0              (1 propagation)
+//       ├── node 4  x1 ∈ [−1, 0]: closed with LP evidence                      (1 propagation)
+//       └── node 5  x1 ∈ [0, 1]:  closed with LP evidence                      (1 propagation)
+//
+// A replay of this certificate does 4 propagations.
+{
+  // ---- Header: what is proved, and for which files -------------------------------------------------
+  "version": 1,
+  "kernel_version": "0.1.0",                       // information only
+  "property": {"epsilon": 0.064, "kind": "epsilon"},
+                                                   // claim: |N1(x)_i − N2(x)_i| ≤ 0.064 for all outputs i
+                                                   // and all x in the spec box
+  "files": {"net1": "net1.onnx", "net2": "net2.onnx", "spec": "spec.vnnlib"},   // information only
+  "spec_hash": "bd2d472475a6559afd08d2a5e9d1833bd89841fe238af676d3a9cd98bd428ca7",
+                                                   // SHA-256 of net1, net2, spec, property and VeryDiff's
+                                                   // src/ tree. The checker computes it again from the files
+                                                   // that you give it. A different file → REJECT.
+  "verydiff_src_tree": "3381bc197341d631fde787e6d94ba37e4707bd51",
+                                                   // must be equal to the checker's VeryDiff src/ tree
+  "verydiff_commit": "2a103f5d99452f5c534c226ac6409e03545a1975",               // information only
+  "softmax_removed": false,                        // true: epsilon refers to the outputs before a final Softmax
+  "spec_box": {"lo": [-1.0, -1.0], "hi": [1.0, 1.0]},     // must be equal to the box in the VNNLIB file
+  "active_dims": [1, 2],                           // input dimensions with lo < hi (1-based)
+
+  // ---- Options: they change how the checker propagates and checks every node -----------------------
+  "options": {
+    "csb": false,          // true: tighten z1 = z2 + d at every ReLU layer (always done at layers with a split)
+    "fallback": true,      // VeryDiff flag ONE_SIDED_DIFF_FALLBACK (needed with hidden splits)
+    "lp_relax": true       // LP leaves may use relaxation rows (see node 4)
+  },
+
+  // ---- Result ------------------------------------------------------------------------------------------
+  "status": "SAFE",        // SAFE: the main obligation must be closed. UNSAFE: only "cex" is checked.
+  "cex": null,             // counterexample {"x", "n1", "n2", "dist"} for UNSAFE certificates
+  "obligations": [
+    {"id": 1, "kind": "main", "root": 1, "target": "property"}
+                           // one main obligation. Each lemma adds an obligation of kind "lemma".
+  ],
+  "lemmas": [],            // this proof uses no lemmas
+
+  // ---- Proof tree: [id, parent, side, kind, payload, region] -------------------------------------------
+  //   side    0 = root, 1 = lower child (≤ / [lo, cut]), 2 = upper child (≥ / [cut, hi])
+  //   kind    "s" split, "a" assume (lemma), "c" closed leaf, "o" open leaf
+  //   "p"     true: the node was propagated before it was split, and its children start from the bounds
+  //           cache of that propagation. false: no propagation, the children get the node's own cache.
+  //   region  [lo, hi] on the active dimensions. The checker computes it again and compares.
+  "nodes": [
+    [1, 0, 0, "s", {"b": "relu", "k": 3, "v": "z1", "j": 1, "c": -0.33, "p": false},
+                   [[-1.0, -1.0], [1.0, 1.0]]],
+    // Split on a hidden quantity: the pre-activation z1 of unit 1 at the input of ReLU layer 3 (network 1).
+    // Child 1 (side 1) assumes z1[1] ≤ −0.33, child 2 (side 2) assumes z1[1] ≥ −0.33. Both children keep the
+    // full region: the split cuts the input space along the hidden unit's hyperplane. In MNIST, these splits
+    // make the bands on r = h45. "p": false, so this node costs no propagation.
+    // Every propagation below this node uses the constraint: contraction of the noise box, seeding of the bounds
+    // cache, dual-tightened bounds at later ReLU layers, and LP rows ("cons" below).
+
+    [2, 1, 1, "c", {"db": 0.058693361965504245},
+                   [[-1.0, -1.0], [1.0, 1.0]]],
+    // Closed leaf without LP evidence. The checker propagates the region with the constraint z1[1] ≤ −0.33 and
+    // runs VeryDiff's epsilon check. The bound 0.0587 ≤ 0.064, so the leaf closes.
+    // "db" is information only: the checker computes the bound itself.
+
+    [3, 1, 2, "s", {"b": "primary", "d": 1, "c": 0.0, "p": true},
+                   [[-1.0, -1.0], [1.0, 1.0]]],
+    // Input split on dimension 1 at 0.0: child 1 gets x1 ∈ [−1, 0], child 2 gets x1 ∈ [0, 1].
+    // "p": true: the kernel checked this node first (it did not close). The checker does this propagation too,
+    // because the children start from its bounds cache. The constraint z1[1] ≥ −0.33 is inherited.
+
+    [4, 3, 1, "c", {
+        "db": 0.06668978762120178,
+        // VeryDiff's plain zonotope bound, 0.0667 > 0.064. Thus this leaf needs the LP evidence below.
+        "lp": {
+          "lemmas": [],            // lemma claims used as rows (none)
+          "cons": [1],             // split constraints used as rows: the 1st constraint on the path,
+                                   // z1[1] ≥ −0.33, gives 1 row
+          "relax": [               // relaxation rows: [ReLU layer, unit, type]. Each one is a true relation
+                                   // between concrete values (table in docs/certificate_format.md).
+            [3, 1, "a1>=0"],       //   ReLU output of N1 is ≥ 0
+            [3, 1, "a1>=z1"],      //   ReLU output of N1 is ≥ its input
+            [3, 1, "a1<=ch"],      //   ReLU output of N1 is ≤ the chord over the cached input bounds
+            [3, 1, "a2>=0"],       //   the same three rows for N2
+            [3, 1, "a2>=z2"],
+            [3, 1, "a2<=ch"],
+            [3, 1, "dpre+"],       //   d = z1 − z2 at the ReLU input (two rows)
+            [3, 1, "dpre-"],
+            [3, 1, "dpost+"],      //   t = a1 − a2 at the ReLU output (two rows)
+            [3, 1, "dpost-"],
+            [3, 1, "t<=ch"],       //   t ≤ chord of max(0, d)
+            [3, 1, "t>=ch"],       //   t ≥ chord of min(0, d)
+            "… the same 12 rows for units 2–8 of layer 3 and units 1–8 of layer 6 (192 rows in total) …"
+          ],
+          "rows": [
+            // One entry per objective that the plain zonotope bound cannot show. Here: output 2 from above
+            // ("out:2:+" is N1 − N2 ≤ ε; "out:2:-" would be N2 − N1 ≤ ε). The other objectives hold without LP.
+            {"o": "out:2:+",
+             "lam": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.001202, 0.0, 0.201564,
+                     "… 193 multipliers in total: 1 for the constraint row, then 1 per relaxation row …"]}
+            // The checker builds the 193 rows A ε ≤ r itself (from its own propagation), and computes
+            //   c + ‖g − Aᵀλ‖₁ + λ·r
+            // for the objective c + g·ε. This must be ≤ 0.064. Every λ ≥ 0 gives a sound bound
+            // (weak duality), so the checker does not need an LP solver and does not trust the kernel's solver.
+          ]
+        }
+      },
+      [[-1.0, -1.0], [0.0, 1.0]]],
+    // Region x1 ∈ [−1, 0], x2 ∈ [−1, 1].
+
+    [5, 3, 2, "c", {
+        "db": 0.0701705919861689,
+        "lp": {
+          "lemmas": [],
+          "cons": [1],
+          "relax": ["… same 192 rows as node 4 …"],
+          "rows": [
+            {"o": "out:2:+", "lam": ["… 193 multipliers …"]},
+            {"o": "out:2:-", "lam": ["… 193 multipliers …"]}
+            // Here both sides of output 2 need the LP.
+          ]
+        }
+      },
+      [[0.0, -1.0], [1.0, 1.0]]]
+    // Region x1 ∈ [0, 1], x2 ∈ [−1, 1].
+  ],
+  // Closure: node 1 is closed because node 2 and node 3 are closed; node 3 is closed because nodes 4 and 5
+  // are closed. Thus the main obligation is closed and the status SAFE is correct.
+
+  // ---- Information only ----------------------------------------------------------------------------------
+  "log": ["… 6 actions: split_relu, check, check, split, check, check (with time and rationale) …"],
+  "stats": {"nodes": 5, "checks": 4, "propagations": 4, "inspection_propagations": 0,
+            "trial_propagations": 0, "auto_nodes": 0, "kernel_seconds": 35.714}
+}

@@ -9,6 +9,9 @@ julia --project=agent/julia/VeryDiffAgentKernel agent/checker/check_certificate.
 # → ACCEPT SAFE|UNSAFE|PARTIAL ...   or   REJECT <reason>
 ```
 
+A complete small example with explanations: [`examples/example_certificate.jsonc`](examples/example_certificate.jsonc)
+(the checkable file is `examples/example_certificate.json`, made by `examples/make_example_certificate.jl`).
+
 The checker trusts nothing in the certificate except what it re-derives: it re-parses the networks and the spec,
 recomputes the spec hash, reconstructs every region from the spec box and the cuts, re-runs every propagation
 (VeryDiff's transformers plus its own re-implementations of seeding, contraction, dual-tightened bounds and
@@ -39,7 +42,8 @@ Floats that may be infinite are encoded as the strings `"Infinity"` / `"-Infinit
 
 **UNSAFE** certificates are checked by evaluating both networks at `cex.x` (must lie in the box and violate ε);
 the tree is ignored. **SAFE** requires the main root to be closed; **PARTIAL** reports the verified closed
-volume fraction.
+volume fraction: input splits divide a node's volume in proportion to the cut; hidden and relational splits do
+not divide it (their children share the region), so such a subtree counts only if it is closed as a whole.
 
 ## Nodes
 

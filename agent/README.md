@@ -17,6 +17,7 @@ Scope: **ε-equivalence** (max_i |N1(x)_i − N2(x)_i| ≤ ε on a VNNLIB input 
 | [`docs/mcp_tools.md`](docs/mcp_tools.md) | reference of all MCP tools (generated from the docstrings) |
 | [`docs/certificate_format.md`](docs/certificate_format.md) | certificate JSON format and what the checker verifies |
 | [`docs/examples/mnist68_proof.jl`](docs/examples/mnist68_proof.jl) | the MNIST proof script |
+| [`docs/examples/example_certificate.jsonc`](docs/examples/example_certificate.jsonc) | a 5-node certificate with explanations, using every feature of the MNIST certificate (checkable `.json` next to it) |
 
 Logs, certificates and experiment scripts are on the branch `agent/mcp-prototype-experiments`
 (index: `agent/experiments/README.md`).
