@@ -381,6 +381,78 @@ end
     @test K.validate_tree(S)
 end
 
+@testset "ReLU case splits (cache seeding, csb, infeasibility)" begin
+    S = open_case("safe_hard")
+    check!(S, 1)
+    sc = relu_scores(S, 1; top_k=50)
+    @test sc["n_relaxation_columns"] > 0
+    e = first(x for x in sc["top"] if x["z1"][1] < 0 < x["z1"][2])
+    k, j = e["layer"], e["neuron"]
+    rb = S.nodes[1].cache_out.bounds_cache[k]
+    @test rb.lower₁[j] < 0 < rb.upper₁[j]
+    r = split_relu!(S, 1, k, j; var="z1", t=0.0)
+    a, b = r["children"]
+    check!(S, a); check!(S, b)
+    ca = S.nodes[a].cache_out.bounds_cache[k]; cb = S.nodes[b].cache_out.bounds_cache[k]
+    # the split decision reaches VeryDiff's transformer: phase fixed in the cache ...
+    @test ca.upper₁[j] == 0.0 && cb.lower₁[j] == 0.0
+    # ... so no relaxation column for this unit in N1 below
+    for c in (a, b)
+        res = K.inspect_propagation(S, S.nodes[c])
+        @test !any(x -> x[1] == k && x[2] == "z1" && x[3] == j, K.relaxation_columns(S, res))
+    end
+    # cross-network tightening on the seeded layer: z2 ⊆ z1 − d
+    for cc in (ca, cb)
+        @test cc.lower₂[j] >= cc.lower₁[j] - cc.∂upper[j] - 1e-12
+        @test cc.upper₂[j] <= cc.upper₁[j] - cc.∂lower[j] + 1e-12
+        @test cc.lower₂[j] >= rb.lower₂[j] - 1e-12 && cc.upper₂[j] <= rb.upper₂[j] + 1e-12
+    end
+    # soundness on samples: each sample's outputs lie in the bounds of the branch its phase belongs to
+    rng = MersenneTwister(7)
+    ob = Dict(c => (z = K.inspect_propagation(S, S.nodes[c]).Zout; (K.zono_bounds(z.Z₁), K.zono_bounds(z.Z₂), K.zono_bounds(z.∂Z)))
+              for c in (a, b))
+    lo, hi = S.root_box.lo, S.root_box.hi
+    for _ in 1:300
+        x = lo .+ rand(rng, length(lo)) .* (hi .- lo)
+        ep = eval_point(S, x)
+        h = ep["hidden_preact"][string(k)]["n1"][j]
+        for c in vcat(h <= 0 ? [a] : Int[], h >= 0 ? [b] : Int[])
+            b1, b2, bd = ob[c]
+            @test all(b1[:, 1] .- 1e-9 .<= ep["y1"] .<= b1[:, 2] .+ 1e-9)
+            @test all(b2[:, 1] .- 1e-9 .<= ep["y2"] .<= b2[:, 2] .+ 1e-9)
+            @test all(bd[:, 1] .- 1e-9 .<= ep["y1"] .- ep["y2"] .<= bd[:, 2] .+ 1e-9)
+        end
+    end
+    # complete proof through the relu split; independent checker accepts
+    for c in (a, b)
+        S.nodes[c].kind == :open && auto_expand!(S, c; max_nodes=100000)
+    end
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, "safe_hard"), "ACCEPT")
+    # mutation: wrong split variable -> replay differs; dropping a branch -> structural reject
+    @test startswith(check_cert(S, "safe_hard"; mutate=c -> begin
+        e = only(x for x in c["nodes"] if x[4] == "s" && get(x[5], "b", "") == "relu")
+        e[5]["k"] = -1 end), "REJECT")
+    @test startswith(check_cert(S, "safe_hard"; mutate=c -> begin
+        filter!(x -> x[1] != b, c["nodes"]) end), "REJECT")
+
+    # infeasible branch: z1 >= t with t far above the upper bound
+    S2 = open_case("safe_hard")
+    check!(S2, 1)
+    u = S2.nodes[1].cache_out.bounds_cache[k].upper₁[j]
+    r2 = split_relu!(S2, 1, k, j; var="z1", t=u + 1.0)
+    c2 = check!(S2, r2["children"][2])
+    @test c2["outcome"] == "closed" && S2.nodes[r2["children"][2]].evidence["check"] == "infeasible"
+    # an infeasible flag on a feasible leaf is rejected
+    auto_expand!(S2, r2["children"][1]; max_nodes=100000)
+    @test session_verdict(S2) == "SAFE"
+    @test startswith(check_cert(S2, "safe_hard"), "ACCEPT")
+    @test startswith(check_cert(S2, "safe_hard"; mutate=c -> begin
+        for x in c["nodes"]
+            x[4] == "c" && !get(x[5], "inf", false) && (x[5]["inf"] = true; break)
+        end end), "REJECT")
+end
+
 @testset "Checker mutations" begin
     S = open_case("safe_split")
     auto_expand!(S, S.obligations[S.main_obligation].root; max_nodes=10_000)

@@ -134,7 +134,9 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
         end
         if diff_layer.layer1 isa ONNXRelu
             intersect_fresh!(bounds_cache, input_zonotopes[1])
-            csb && csb_tighten!(bounds_cache)
+            # Seeded layers (case splits, lemmas) always get the cross-network tightening, so that a bound on
+            # one network's pre-activation also tightens the other one's via d = z1 − z2.
+            (csb || haskey(seeds, diff_layer.layer_idx)) && csb_tighten!(bounds_cache)
             e = infeasible_entry(bounds_cache)
             if !isnothing(e)
                 infeasible[] = Dict{String,Any}("layer" => diff_layer.layer_idx, "var" => e[1], "neuron" => e[2], "gap" => e[3])

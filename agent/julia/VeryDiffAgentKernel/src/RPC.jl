@@ -37,11 +37,14 @@ const METHODS = Dict{String,Function}(
     "warmup" => p -> warmup(),
     "ping" => p -> Dict("pong" => true, "kernel_version" => KERNEL_VERSION),
     "open_session" => p -> begin
-        S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"])
-        Dict("spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
+        S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"]; csb=Bool(opt(p, "csb", false)))
+        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
              "input_dim" => dim(S.root_box), "active_dims" => S.active_dims, "relu_layers" => S.relu_layers,
              "softmax_removed" => S.softmax_removed, "verydiff_commit" => S.verydiff_commit)
     end,
+    "split_relu" => p -> split_relu!(current(), Int(p["node"]), Int(p["layer"]), Int(p["neuron"]);
+                           var=opt(p, "var", "z1"), t=Float64(opt(p, "t", 0.0)), rationale=opt(p, "rationale", "")),
+    "relu_scores" => p -> relu_scores(current(), Int(p["node"]); top_k=Int(opt(p, "top_k", 10)), rows=get(p, "rows", nothing)),
     "check" => p -> check!(current(), Int(p["node"]); rationale=opt(p, "rationale", "")),
     "split" => p -> split!(current(), Int(p["node"]), Int(p["dim"]); cut=get(p, "cut", nothing),
                            cuts=get(p, "cuts", nothing), dim_block=opt(p, "dim_block", "primary"), rationale=opt(p, "rationale", "")),
@@ -107,7 +110,7 @@ sanitize(x::Tuple) = Any[sanitize(v) for v in x]
 sanitize(x) = x
 
 # Actions allowed inside `batch` (no session/certificate/export side effects).
-const BATCHABLE = Set(["check", "split", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "introduce_relational_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
+const BATCHABLE = Set(["check", "split", "split_relu", "relu_scores", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "introduce_relational_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
     "refute_lemma", "prune", "submit_counterexample", "session_status", "list_open_leaves", "get_node",
     "output_bounds", "split_scores", "cache_bounds", "inspect_layer", "read_weights", "eval_point"])
 

@@ -92,16 +92,17 @@ def _rat(r: str | None) -> str:
 
 # ====================================================================== session
 @mcp.tool()
-def open_session(net1: str, net2: str, spec: str, epsilon: float) -> Any:
+def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = False) -> Any:
     """Open a proof session for ε-equivalence (max_i |N1(x)_i − N2(x)_i| ≤ ε for all x in the VNNLIB input box).
-    The spec is fixed for the session. Returns the root node id and layer info."""
+    The spec is fixed for the session. Returns the root node id and layer info (ReLU layers and widths).
+    csb=True tightens every ReLU-input bound with z1 = z2 + d (always done on layers with splits/lemmas)."""
     for p in (net1, net2, spec):
         if not Path(p).is_file():
             return {"error": "io", "message": f"file not found: {p}"}
     if not (epsilon >= 0 and epsilon == epsilon and epsilon != float("inf")):
         return {"error": "precondition", "message": "epsilon must be finite and >= 0"}
     paths = {k: str(Path(v).resolve()) for k, v in (("net1", net1), ("net2", net2), ("spec", spec))}
-    r = _call("open_session", **paths, property={"kind": "epsilon", "epsilon": float(epsilon)})
+    r = _call("open_session", **paths, property={"kind": "epsilon", "epsilon": float(epsilon)}, csb=bool(csb))
     if "error" not in r:
         _state["session"] = {**paths, "epsilon": epsilon, "spec_hash": r.get("spec_hash")}
         if os.environ.get("VDA_SANDBOX", "1") != "0":
@@ -131,6 +132,29 @@ def split(node: int, dim: int, cut: float | None = None, cuts: list[float] | Non
     if dim_block not in ("primary", "sec1", "sec2"):
         return {"error": "precondition", "message": "dim_block must be primary|sec1|sec2"}
     return _call("split", node=int(node), dim=int(dim), cut=cut, cuts=cuts, dim_block=dim_block, rationale=_rat(rationale))
+
+
+@mcp.tool()
+def split_relu(node: int, layer: int, neuron: int, var: str = "z1", t: float = 0.0, rationale: str = "") -> Any:
+    """Case split an open leaf on a hidden pre-activation at the input of ReLU layer `layer` (1-based neuron):
+    var z1 (N1), z2 (N2) or d (N1−N2). Child 1 assumes v <= t, child 2 assumes v >= t; both keep the region.
+    With t=0 on z1/z2 this fixes the unit's phase (inactive/active) in every propagation below, removing its
+    relaxation; the other network's bound is tightened through d. A branch whose bounds become empty closes as
+    'infeasible' when checked. Chain two calls (z1 then z2) for a 4-way phase split; unchecked split nodes cost
+    no propagation."""
+    if var not in ("z1", "z2", "d"):
+        return {"error": "precondition", "message": "var must be z1|z2|d"}
+    return _call("split_relu", node=int(node), layer=int(layer), neuron=int(neuron), var=var, t=float(t),
+                 rationale=_rat(rationale))
+
+
+@mcp.tool()
+def relu_scores(node: int, top_k: int = 10, rows: list[int] | None = None) -> Any:
+    """Rank unstable ReLU units at `node` by the mass of their relaxation generator in the output ∂Z on the
+    critical output rows (those whose bound exceeds ε, or `rows`). Each entry gives layer, var (z1/z2/d), neuron,
+    score, its share of the row's generator mass and the cached z1/z2/d bounds. Candidates for split_relu.
+    Direct mass only: N1 (z1) relaxations reach ∂Z indirectly and typically score 0. One propagation."""
+    return _call("relu_scores", node=int(node), top_k=int(max(1, min(top_k, 500))), rows=rows)
 
 
 @mcp.tool()

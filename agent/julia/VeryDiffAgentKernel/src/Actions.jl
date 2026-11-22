@@ -196,7 +196,7 @@ function do_split_relu!(S::Session, n::Node, layer::Int, var::String, neuron::In
     layer in S.relu_layers || kerr("precondition", "layer $layer is not a ReLU layer (ReLU layers: $(S.relu_layers))")
     var in ("z1", "z2", "d") || kerr("precondition", "var must be z1, z2 or d")
     isfinite(t) || kerr("precondition", "threshold must be finite")
-    w = relu_width(S, layer)
+    w = relu_dim(S, layer)
     1 <= neuron <= w || kerr("precondition", "neuron $neuron out of range 1:$w")
     parent_cache = inheritable_cache(n)
     kids = Node[]
@@ -219,7 +219,7 @@ function do_split_relu!(S::Session, n::Node, layer::Int, var::String, neuron::In
     return kids[1], kids[2]
 end
 
-relu_width(S::Session, layer::Int) = S.relu_widths[layer]
+relu_dim(S::Session, layer::Int) = S.relu_widths[layer]
 
 function split_relu!(S::Session, node::Int, layer::Int, neuron::Int; var::AbstractString="z1", t=0.0,
                      rationale::AbstractString="")

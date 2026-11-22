@@ -207,7 +207,9 @@ end
 relu_scores: rank unstable units by the output-bound mass of their relaxation generator (how much of the
 output bound on the critical rows comes from that unit's ReLU over-approximation). A large score suggests a
 ReLU phase split (split_relu) on that unit; var d means the differential relaxation (split d at 0 or both
-phases). One propagation.
+phases). One propagation. Note: VeryDiff's differential Linear transformer builds ∂Z from ∂Z and Z₂, so N1's own
+relaxation columns (var z1) usually have score 0 here although splitting them can still help indirectly
+(phases of later N1 units, selector cases); the score measures direct output-bound mass only.
 """
 function relu_scores(S::Session, id::Int; top_k::Int=10, rows=nothing)
     n = getnode(S, id)
