@@ -134,7 +134,7 @@ end
 """Verify LP dual evidence: every listed objective is bounded by its threshold via c + ‖g − Aᵀλ‖₁ + λ·r with λ ≥ 0.
 `objs` maps label => (c, g, threshold) for all objectives that must hold; objectives without evidence must hold
 by the plain zonotope bound."""
-function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m)
+function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m; cons=Tuple{Int,Seed}[])
     used = Int.(ev["lemmas"])
     issubset(used, scope) || reject("LP evidence uses lemmas not in scope")
     issorted(used) && allunique(used) || reject("LP evidence lemma list not sorted/unique")
@@ -143,6 +143,16 @@ function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m)
         Zk = zk_of(lemmas_by_id[L].layer)
         isnothing(Zk) && reject("LP evidence uses lemma $L whose layer is not available")
         for (terms, rhs) in specs(lemmas_by_id[L].seed)
+            c, g = combo(Zk, terms, off, m); push!(rows, g); push!(r, rhs - c)
+        end
+    end
+    ci = Int.(get(ev, "cons", Int[]))
+    issorted(ci) && allunique(ci) && all(1 .<= ci .<= length(cons)) || reject("LP evidence constraint list invalid")
+    for i in ci
+        k, sd = cons[i]
+        Zk = zk_of(k)
+        isnothing(Zk) && reject("LP evidence uses constraint $i whose layer is not available")
+        for (terms, rhs) in specs(sd)
             c, g = combo(Zk, terms, off, m); push!(rows, g); push!(r, rhs - c)
         end
     end
@@ -248,6 +258,49 @@ function contract!(P, Zi, seeds::Vector{Seed})
     return false
 end
 
+# ---------------------------------------------------------------- dual-tightened ReLU-input bounds (re-implemented)
+"""min over λ ≥ 0 of Σ|g − λa| + λβ via the sorted breakpoints."""
+function dual1(g, a, β)
+    v0 = sum(abs, g)
+    isfinite(β) || return v0
+    s = β; pts = Tuple{Float64,Float64}[]
+    for i in eachindex(a)
+        a[i] == 0.0 && continue
+        l = g[i] / a[i]
+        l > 0 ? (s -= abs(a[i]); push!(pts, (l, abs(a[i])))) : (s += abs(a[i]))
+    end
+    s >= 0 && return v0
+    sort!(pts; by=first); λ = 0.0
+    for (l, w) in pts
+        λ = l; s += 2w; s >= 0 && break
+    end
+    return min(v0, sum(abs, g .- λ .* a) + λ * β)
+end
+
+function tighten_dual!(bc, P, N, Zi, k, cons::Dict{Int,Vector{Seed}})
+    pre = [(kk, sd) for (kk, v) in cons for sd in v if kk <= k]
+    isempty(pre) && return
+    zk(kk) = P.zono_storage.zonotopes[get_inputs(only(l for l in get_layers(N) if l.layer_idx == kk))[1]].zonotope
+    Zs = Any[Zi.∂Z, Zi.Z₁, Zi.Z₂]
+    for (kk, _) in pre; Z = zk(kk); append!(Zs, [Z.∂Z, Z.Z₁, Z.Z₂]); end
+    off, m = layout(Zs)
+    rows = Tuple{Vector{Float64},Float64}[]
+    for (kk, sd) in sort(pre; by=first), (terms, rhs) in specs(sd)
+        c, g = combo(zk(kk), terms, off, m); push!(rows, (g, rhs - c))
+    end
+    for (Z, lo, hi) in ((Zi.Z₁, bc.lower₁, bc.upper₁), (Zi.Z₂, bc.lower₂, bc.upper₂), (Zi.∂Z, bc.∂lower, bc.∂upper))
+        for j in eachindex(lo)
+            c, g = row(Z, j, off, m)
+            u = Inf; l = -Inf
+            for (a, β) in rows
+                u = min(u, c + dual1(g, a, β)); l = max(l, c - dual1(-g, a, β))
+            end
+            isfinite(u) && (hi[j] = min(hi[j], nextfloat(u + 1e-12 * abs(u))))
+            isfinite(l) && (lo[j] = max(lo[j], prevfloat(l - 1e-12 * abs(l))))
+        end
+    end
+end
+
 """Empty-interval test (independent re-implementation of the kernel's rule)."""
 function empty_somewhere(bc::BoundsCache)
     for (lo, hi) in ((bc.lower₁, bc.upper₁), (bc.lower₂, bc.upper₂), (bc.∂lower, bc.∂upper))
@@ -298,6 +351,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
                 bc.lower₂ .= max.(bc.lower₂, b2[:, 1]); bc.upper₂ .= min.(bc.upper₂, b2[:, 2])
                 bc.∂lower .= max.(bc.∂lower, bd[:, 1]); bc.∂upper .= min.(bc.∂upper, bd[:, 2])
             end
+            isempty(cons) || tighten_dual!(bc, P, N, Zi, L.layer_idx, cons)
             if csb || haskey(seeds, L.layer_idx)
                 bc.lower₁ .= max.(bc.lower₁, prevfloat.(bc.lower₂ .+ bc.∂lower)); bc.upper₁ .= min.(bc.upper₁, nextfloat.(bc.upper₂ .+ bc.∂upper))
                 bc.lower₂ .= max.(bc.lower₂, prevfloat.(bc.lower₁ .- bc.∂upper)); bc.upper₂ .= min.(bc.upper₂, nextfloat.(bc.upper₁ .- bc.∂lower))
@@ -494,8 +548,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
                 end
                 if !isnothing(ev)
                     Zs = Any[Z.∂Z, Z.Z₁, Z.Z₂]
-                    for L in Int.(ev["lemmas"])
-                        Zk = zk_of(lemmas[L].layer); isnothing(Zk) || append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
+                    for k in vcat([lemmas[L].layer for L in Int.(ev["lemmas"])], [cons[i][1] for i in Int.(get(ev, "cons", Int[])) if 1 <= i <= length(cons)])
+                        Zk = zk_of(k); isnothing(Zk) || append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
                     end
                     off, m = layout(Zs)
                     objs = Dict{String,Tuple{Float64,Vector{Float64},Float64}}()
@@ -509,7 +563,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
                             c, g = combo(Z, terms, off, m); objs["spec:$k"] = (c, g, rhs)
                         end
                     end
-                    verified_leaf[id] = ok && verify_lp(ev, objs, zk_of, lemmas, scope, off, m)
+                    verified_leaf[id] = ok && verify_lp(ev, objs, zk_of, lemmas, scope, off, m; cons=cons)
                 elseif o.kind == "main"
                     sat, _, _, _, db = epsprop(X1, X2, Zin, Z, nothing)
                     verified_leaf[id] = sat && ok && !isnan(db)

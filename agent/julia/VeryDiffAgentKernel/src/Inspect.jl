@@ -435,3 +435,96 @@ function read_weights(S::Session, layer_idx::Int; which::AbstractString="diff", 
     end
     return d
 end
+
+# ------------------------------------------------------------- program-reading instruments
+"""Folded affine map (W1, b1, W2, b2) of a dense layer (bias of a following AddConst folded in)."""
+function dense_maps(S::Session, layer_idx::Int)
+    L = layer_by_idx(S, layer_idx)
+    hasproperty(L.layer1, :dense) || kerr("precondition", "layer $layer_idx is not a dense layer")
+    W1, b1, W2, b2 = L.layer1.dense.weight, copy(L.layer1.dense.bias), L.layer2.dense.weight, copy(L.layer2.dense.bias)
+    layers = get_layers(S.N); i = findfirst(x -> x.layer_idx == layer_idx, layers)
+    if i < length(layers) && hasproperty(layers[i+1].layer1, :c) && !hasproperty(layers[i+1].layer1, :dense)
+        b1 .+= layers[i+1].layer1.c; b2 .+= layers[i+1].layer2.c
+    end
+    return W1, b1, W2, b2
+end
+
+"""
+network_diff_structure: how N2 differs from N1, layer by layer. For each dense layer: units (rows) and inputs
+(columns) whose weights differ by more than `tol`, units that are knocked out in one network (zero weight row),
+and the largest weight / bias difference outside those rows and columns (the "noise" level).
+"""
+function network_diff_structure(S::Session; tol::Float64=1e-3)
+    out = Dict{String,Any}[]
+    for L in get_layers(S.N)
+        hasproperty(L.layer1, :dense) || continue
+        W1, b1, W2, b2 = dense_maps(S, L.layer_idx)
+        Δ = W1 .- W2; Δb = b1 .- b2
+        rows = findall(r -> maximum(abs, r) > tol, collect(eachrow(Δ)))
+        cols = findall(c -> maximum(abs, c) > tol, collect(eachcol(Δ)))
+        z1 = findall(r -> all(iszero, r), collect(eachrow(W1))); z2 = findall(r -> all(iszero, r), collect(eachrow(W2)))
+        rmask = trues(size(Δ, 1)); rmask[union(z1, z2)] .= false
+        cmask = trues(size(Δ, 2))
+        zc2 = findall(c -> all(iszero, c), collect(eachcol(W2))); zc1 = findall(c -> all(iszero, c), collect(eachcol(W1)))
+        cmask[union(zc1, zc2)] .= false
+        noise = any(rmask) && any(cmask) ? maximum(abs, Δ[rmask, cmask]) : 0.0
+        push!(out, Dict{String,Any}("layer" => L.layer_idx, "shape" => collect(size(W1)),
+            "rows_differing" => length(rows) > 40 ? "$(length(rows)) rows" : rows,
+            "cols_differing" => length(cols) > 40 ? "$(length(cols)) cols" : cols,
+            "units_zeroed_in_net1" => z1, "units_zeroed_in_net2" => z2, "bias_of_zeroed_units_net2" => r6(b2[z2]),
+            "inputs_ignored_by_net1" => zc1, "inputs_ignored_by_net2" => zc2,
+            "max_abs_weight_diff_elsewhere" => r6(noise),
+            "max_abs_bias_diff_elsewhere" => r6(any(rmask) ? maximum(abs, Δb[rmask]) : 0.0)))
+    end
+    return Dict("tol" => tol, "layers" => out,
+        "note" => "1-based unit indices; a layer's rows are the units it computes (inputs of the following ReLU)")
+end
+
+"""
+difference_attribution: sampled decomposition of the difference N1 − N2 of row `row` of dense layer `layer`
+(its pre-activation) into one term per input unit j: W1[row,j]·a1_j − W2[row,j]·a2_j, with a = ReLU of the previous
+layer's pre-activations. Samples are drawn from the node's region and filtered by its case-split constraints.
+Reports the true maximum, per-unit term ranges, each term's value at the arg-max point, the "loss" (its own
+maximum minus its value there) and phase frequencies. Independent per-unit maxima are what abstract
+interpretation effectively adds up; units with large loss are candidates for case distinctions. Inspection only.
+"""
+function difference_attribution(S::Session, id::Int, layer::Int, row::Int; n_samples::Int=20000, top_k::Int=15,
+                                 seed::Int=0, sign::Int=1)
+    n = getnode(S, id)
+    W1, b1, W2, b2 = dense_maps(S, layer)
+    layers = get_layers(S.N); i = findfirst(x -> x.layer_idx == layer, layers)
+    prev = findlast(x -> x.layer_idx < layer && x.layer1 isa ONNXRelu, layers)
+    isnothing(prev) && kerr("precondition", "layer $layer has no ReLU layer before it")
+    kprev = layers[prev].layer_idx
+    name_in = S.pos_names[get_inputs(layers[prev])[1]]
+    rng = Random.MersenneTwister(seed)
+    lo, hi = n.region.lo, n.region.hi
+    T = Vector{Vector{Float64}}(); tot = Float64[]; ph1 = zeros(size(W1, 2)); ph2 = zeros(size(W1, 2)); kept = 0
+    for s in 1:n_samples
+        x = s <= n_samples ÷ 10 ? lo .+ (rand(rng, Bool, length(lo)) .* (hi .- lo)) : lo .+ rand(rng, length(lo)) .* (hi .- lo)
+        o1, o2 = eval_raw(S, x)
+        ok = all(n.constraints) do st
+            k = st.relu_layer; nm = S.pos_names[get_inputs(layer_by_idx(S, k))[1]]
+            h1 = Float64(vec(o1[nm])[st.neurons[1]]); h2 = Float64(vec(o2[nm])[st.neurons[1]])
+            v, l, u = !isnothing(st.n1lo) ? (h1, st.n1lo[1], st.n1hi[1]) : !isnothing(st.n2lo) ? (h2, st.n2lo[1], st.n2hi[1]) :
+                      (h1 - h2, st.dlo[1], st.dhi[1])
+            l <= v <= u
+        end
+        ok || continue
+        kept += 1
+        a1 = max.(Float64.(vec(o1[name_in])), 0.0); a2 = max.(Float64.(vec(o2[name_in])), 0.0)
+        t = sign .* (W1[row, :] .* a1 .- W2[row, :] .* a2)
+        push!(T, t); push!(tot, sum(t) + sign * (b1[row] - b2[row]))
+        ph1 .+= a1 .> 0; ph2 .+= a2 .> 0
+    end
+    kept == 0 && kerr("precondition", "no sample satisfied the node's constraints")
+    M = reduce(hcat, T)'; xs = argmax(tot)
+    units = [Dict{String,Any}("unit" => j, "max" => r6(maximum(M[:, j])), "min" => r6(minimum(M[:, j])), "at_argmax" => r6(M[xs, j]),
+                              "loss" => r6(maximum(M[:, j]) - M[xs, j]), "on_frac_net1" => r6(ph1[j] / kept), "on_frac_net2" => r6(ph2[j] / kept),
+                              "w1" => r6(W1[row, j]), "w2" => r6(W2[row, j])) for j in 1:size(M, 2)]
+    sort!(units; by=u -> -u["loss"])
+    return Dict("node" => id, "layer" => layer, "row" => row, "sign" => sign, "input_relu_layer" => kprev, "samples_kept" => kept,
+        "max_difference" => r6(tot[xs]), "independent_max_sum" => r6(sum(maximum(M; dims=1)) + sign * (b1[row] - b2[row])),
+        "top_loss_units" => units[1:min(top_k, end)],
+        "note" => "sampled (not a bound); units 1-based; loss = term's own max minus its value at the arg-max point")
+end

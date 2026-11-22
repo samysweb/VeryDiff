@@ -488,6 +488,58 @@ end
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = false
 end
 
+@testset "Threshold splits: dual-tightened caches and LP constraint rows are sound" begin
+    for name in ("safe_hard", "safe_mid")
+        S = open_session(INST[name]["net1"], INST[name]["net2"], INST[name]["spec"],
+                         Dict("kind" => "epsilon", "epsilon" => INST[name]["epsilon"]); fallback=true)
+        check!(S, 1)
+        k = S.relu_layers[1]
+        bc0 = S.nodes[1].cache_out.bounds_cache[k]
+        j = argmax(bc0.upper₁ .- bc0.lower₁)
+        t = (bc0.lower₁[j] + bc0.upper₁[j]) / 2
+        kids = split_relu!(S, 1, k, j; var="z1", t=t)["children"]
+        rng = MersenneTwister(11)
+        nin = 0
+        for c in kids
+            check!(S, c)
+            n = S.nodes[c]
+            isnothing(n.cache_out) && continue
+            for _ in 1:300
+                x = S.root_box.lo .+ rand(rng, length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo)
+                ep = eval_point(S, x)
+                h = ep["hidden_preact"][string(k)]["n1"][j]
+                (c == kids[1] ? h <= t : h >= t) || continue
+                nin += 1
+                for kk in S.relu_layers
+                    bc = n.cache_out.bounds_cache[kk]
+                    h1 = ep["hidden_preact"][string(kk)]["n1"]; h2 = ep["hidden_preact"][string(kk)]["n2"]
+                    @test all(bc.lower₁ .- 1e-9 .<= h1 .<= bc.upper₁ .+ 1e-9)
+                    @test all(bc.lower₂ .- 1e-9 .<= h2 .<= bc.upper₂ .+ 1e-9)
+                    @test all(bc.∂lower .- 1e-9 .<= h1 .- h2 .<= bc.∂upper .+ 1e-9)
+                end
+            end
+        end
+        @test nin > 100
+        for c in kids
+            S.nodes[c].kind == :open && auto_expand!(S, c; max_nodes=100000)
+        end
+        @test session_verdict(S) == "SAFE"
+        @test startswith(check_cert(S, name), "ACCEPT")
+        # LP evidence that uses constraint rows: tampering with its multipliers is rejected
+        haslp = any(n -> n.kind == :closed && !isnothing(n.evidence) && haskey(n.evidence, "lp") &&
+                         !isempty(n.evidence["lp"]["cons"]), values(S.nodes))
+        if haslp
+            @test startswith(check_cert(S, name; mutate=c -> begin
+                for e in c["nodes"]
+                    if e[4] == "c" && haskey(e[5], "lp") && !isempty(e[5]["lp"]["cons"])
+                        for r in e[5]["lp"]["rows"]; r["lam"] .= -1.0; end
+                        break
+                    end
+                end end), "REJECT")
+        end
+    end
+end
+
 @testset "Checker mutations" begin
     S = open_case("safe_split")
     auto_expand!(S, S.obligations[S.main_obligation].root; max_nodes=10_000)

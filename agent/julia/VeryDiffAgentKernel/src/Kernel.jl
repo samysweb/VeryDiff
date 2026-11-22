@@ -141,6 +141,78 @@ function rescale_storage!(P::PropState, changed)
     end
 end
 
+# ------------------------------------------------------------------ constraint-aware intermediate bounds
+# For u = c + g·ε and a split-constraint row a·ε ≤ β, every λ ≥ 0 gives u ≤ c + Σ|g_i − λ a_i| + λβ (weak duality).
+# φ(λ) = Σ|g_i − λa_i| + λβ is convex piecewise linear; its minimiser is found exactly by walking the sorted
+# breakpoints g_i/a_i (weighted median). Rounding only affects tightness of the last digits; any λ is sound.
+
+"""min over λ ≥ 0 of Σ|g − λa| + λβ (exact, O(m log m))."""
+function dual_one_row(g::Vector{Float64}, a::Vector{Float64}, β::Float64)
+    base = sum(abs, g)
+    isfinite(β) || return base
+    slope = β
+    bps = Tuple{Float64,Float64}[]
+    for i in eachindex(a)
+        ai = a[i]; ai == 0.0 && continue
+        l = g[i] / ai
+        if l > 0
+            slope -= abs(ai); push!(bps, (l, abs(ai)))
+        else
+            slope += abs(ai)
+        end
+    end
+    slope >= 0 && return base
+    sort!(bps; by=first)
+    λ = 0.0
+    for (l, w) in bps
+        λ = l; slope += 2w
+        slope >= 0 && break
+    end
+    return min(base, sum(abs, g .- λ .* a) + λ * β)
+end
+
+"""Constraint rows (a, β) with a·ε ≤ β in layout (off, m), from the node's constraints at layers ≤ k."""
+function constraint_rows(P::PropState, N, cons::Vector{LemmaStatement}, k::Int, off, m)
+    rows = Tuple{Vector{Float64},Float64}[]
+    for st in cons
+        st.relu_layer <= k || continue
+        L = only(l for l in get_layers(N) if l.layer_idx == st.relu_layer)
+        Zk = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
+        for (terms, rhs) in lemma_specs(st)
+            row = combo_row(Zk, terms, off, m)
+            push!(rows, (row.g, rhs - row.c))
+        end
+    end
+    return rows
+end
+
+"""Tighten the cache of ReLU layer k (input Zi) with the case-split constraints at layers ≤ k."""
+function dual_tighten!(bc::BoundsCache, P::PropState, N, Zi, k::Int, cons::Vector{LemmaStatement})
+    Zs = Any[Zi.∂Z, Zi.Z₁, Zi.Z₂]
+    for st in cons
+        st.relu_layer <= k || continue
+        L = only(l for l in get_layers(N) if l.layer_idx == st.relu_layer)
+        Zk = P.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
+        append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
+    end
+    off, m = var_layout(Zs)
+    rows = constraint_rows(P, N, cons, k, off, m)
+    isempty(rows) && return
+    for (Z, lo, hi) in ((Zi.Z₁, bc.lower₁, bc.upper₁), (Zi.Z₂, bc.lower₂, bc.upper₂), (Zi.∂Z, bc.∂lower, bc.∂upper))
+        for j in eachindex(lo)
+            r = affrow(Z, j, off, m)
+            ub = Inf; lb = -Inf
+            ng = .-r.g
+            for (a, β) in rows
+                ub = min(ub, r.c + dual_one_row(r.g, a, β))
+                lb = max(lb, r.c - dual_one_row(ng, a, β))
+            end
+            isfinite(ub) && (hi[j] = min(hi[j], nextfloat(ub + 1e-12 * abs(ub))))
+            isfinite(lb) && (lo[j] = max(lo[j], prevfloat(lb - 1e-12 * abs(lb))))
+        end
+    end
+end
+
 const INFEASIBLE_RTOL = 1e-9
 """First (var, neuron, gap) with lower − upper > tol·(1 + max(|lower|, |upper|)), else nothing."""
 function infeasible_entry(bc::BoundsCache)
@@ -232,6 +304,7 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
         end
         if diff_layer.layer1 isa ONNXRelu
             intersect_fresh!(bounds_cache, input_zonotopes[1])
+            haskey(contract, -1) && dual_tighten!(bounds_cache, P, N, input_zonotopes[1], diff_layer.layer_idx, contract[-1])
             # Seeded layers (case splits, lemmas) always get the cross-network tightening, so that a bound on
             # one network's pre-activation also tightens the other one's via d = z1 − z2.
             (csb || haskey(seeds, diff_layer.layer_idx)) && csb_tighten!(bounds_cache)
@@ -260,7 +333,8 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     Zin = ps.zono_storage.zonotopes[1].zonotope
     infeas = Ref{Any}(nothing)
     done = propagate_seeded!(S.N, ps, seeds_for(S, lemma_ids, constraints), stop; csb=S.csb, infeasible=infeas,
-                             contract=seeds_for(S, Int[], constraints))
+                             contract=merge(seeds_for(S, Int[], constraints), isempty(constraints) ? Dict{Int,Vector{LemmaStatement}}() :
+                                            Dict(-1 => constraints)))
     S.n_propagations += 1
     if !isnothing(infeas[])
         inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]

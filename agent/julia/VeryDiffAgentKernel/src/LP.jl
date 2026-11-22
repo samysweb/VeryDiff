@@ -108,7 +108,8 @@ end
 
 """Constraint rows (A, r) and the list of lemma ids used, from the in-scope lemmas whose layer zonotope is
 available in this propagation."""
-function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, off, m)
+function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, off, m;
+                           constraints::Vector{LemmaStatement}=LemmaStatement[], used_cons::Vector{Int}=Int[])
     rows = Vector{Float64}[]; r = Float64[]; used = Int[]
     for L in sort(lemma_ids)
         st = getlemma(S, L).stmt
@@ -117,6 +118,18 @@ function lemma_constraints(S::Session, res::PropResult, lemma_ids::Vector{Int}, 
         specs = lemma_specs(st)
         isempty(specs) && continue
         push!(used, L)
+        for (terms, rhs) in specs
+            row = combo_row(Zk, terms, off, m)
+            push!(rows, row.g); push!(r, rhs - row.c)
+        end
+    end
+    # case-split constraints of the node (after the lemma rows, in node order)
+    for (i, st) in enumerate(constraints)
+        Zk = zono_at_relu_input(S, res, st.relu_layer)
+        isnothing(Zk) && continue
+        specs = lemma_specs(st)
+        isempty(specs) && continue
+        push!(used_cons, i)
         for (terms, rhs) in specs
             row = combo_row(Zk, terms, off, m)
             push!(rows, row.g); push!(r, rhs - row.c)
@@ -138,10 +151,10 @@ function zono_at_relu_input(S::Session, res::PropResult, k::Int)
 end
 
 """All zonotopes involved (for the variable layout)."""
-function lp_zonos(S::Session, res::PropResult, lemma_ids, extra)
+function lp_zonos(S::Session, res::PropResult, lemma_ids, extra; constraints::Vector{LemmaStatement}=LemmaStatement[])
     Zs = Any[extra...]
-    for L in lemma_ids
-        Zk = zono_at_relu_input(S, res, getlemma(S, L).stmt.relu_layer)
+    for k in vcat([getlemma(S, L).stmt.relu_layer for L in lemma_ids], [st.relu_layer for st in constraints])
+        Zk = zono_at_relu_input(S, res, k)
         isnothing(Zk) || append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
     end
     return Zs
@@ -152,8 +165,10 @@ Try to establish `objective_k ≤ t_k` for all k with lemma constraints. `objs` 
 (label, AffRow, threshold). Returns (ok, evidence) where evidence lists, for each objective that needed the LP,
 its label and λ, plus the lemma ids whose constraints were used (in order).
 """
-function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs, off, m)
-    A, r, used = lemma_constraints(S, res, lemma_ids, off, m)
+function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs, off, m;
+                      constraints::Vector{LemmaStatement}=LemmaStatement[])
+    used_cons = Int[]
+    A, r, used = lemma_constraints(S, res, lemma_ids, off, m; constraints=constraints, used_cons=used_cons)
     ev = Dict{String,Any}[]
     worst = -Inf
     for (label, o, t) in objs
@@ -166,5 +181,5 @@ function lp_establish(S::Session, res::PropResult, lemma_ids::Vector{Int}, objs,
         worst = max(worst, b - t)
         push!(ev, Dict{String,Any}("o" => label, "lam" => λ))
     end
-    return worst <= 0.0, Dict{String,Any}("lemmas" => used, "rows" => ev), worst
+    return worst <= 0.0, Dict{String,Any}("lemmas" => used, "cons" => used_cons, "rows" => ev), worst
 end
