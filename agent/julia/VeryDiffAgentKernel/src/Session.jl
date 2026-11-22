@@ -13,6 +13,7 @@ mutable struct Session
     out_tensor::String                # tensor whose value is "the output" (pre-softmax if removed)
     pos_names::Dict{Int,String}       # zonotope storage position -> ONNX tensor name
     relu_layers::Vector{Int}
+    relu_widths::Dict{Int,Int}
     root_box::Box
     active_dims::Vector{Int}
     property::PropertyAdapter
@@ -34,6 +35,7 @@ mutable struct Session
     n_propagations::Int               # all VeryDiff propagations (proof checks + read-only inspection)
     n_checks::Int                     # propagations done by proof actions (check / auto_expand / prove_lemma)
     n_trial_propagations::Int         # propagations spent in dry runs (trial_lemma); not proof cost
+    csb::Bool                         # option: consistency tightening z1 = z2 + d of ReLU-input bounds
 end
 
 const SESSION = Ref{Union{Nothing,Session}}(nothing)
@@ -113,7 +115,14 @@ function load_problem(net1::String, net2::String, spec::String)
             out_tensor=pos_names[out_pos], pos_names=pos_names, relu=relu)
 end
 
-function open_session(net1::String, net2::String, spec::String, property::AbstractDict)
+"""Widths of the ReLU inputs, from one concrete evaluation of N1 at the box centre."""
+function relu_widths(P)
+    x = (P.root.lo .+ P.root.hi) ./ 2
+    o = compute_all_outputs(P.o1, x)
+    return Dict{Int,Int}(k => length(o[P.pos_names[get_inputs(only(l for l in get_layers(P.N) if l.layer_idx == k))[1]]]) for k in P.relu)
+end
+
+function open_session(net1::String, net2::String, spec::String, property::AbstractDict; csb::Bool=false)
     t = time()
     VeryDiff.USE_DIFFZONO[] = true
     VeryDiff.NEW_HEURISTIC[] = true
@@ -124,9 +133,9 @@ function open_session(net1::String, net2::String, spec::String, property::Abstra
     h = compute_spec_hash(net1, net2, spec, canon, tree)
     active = findall(P.root.lo .< P.root.hi)
     S = Session(abspath(net1), abspath(net2), abspath(spec), P.N, P.o1, P.o2, executable_network(P.o1), executable_network(P.o2), P.softmax_removed,
-        P.out_tensor, P.pos_names, P.relu, P.root, active, adapter, canon, h, commit, tree,
+        P.out_tensor, P.pos_names, P.relu, relu_widths(P), P.root, active, adapter, canon, h, commit, tree,
         Dict{Int,Node}(), Dict{Int,Obligation}(), Dict{Int,Lemma}(), 1, 1, 1, 0, nothing,
-        Dict{String,Any}[], 0.0, time(), 0, 0, 0)
+        Dict{String,Any}[], 0.0, time(), 0, 0, 0, csb)
     root = new_node!(S, 0, 0, 0, P.root, Int[], TaskBounds(), 1.0, 0, :agent)
     S.main_obligation = new_obligation!(S, :main, root.id, 0, adapter)
     root.obligation = S.main_obligation
@@ -136,9 +145,10 @@ function open_session(net1::String, net2::String, spec::String, property::Abstra
 end
 
 function new_node!(S::Session, obligation, parent, side, region, lemmas, cache_in, work_share, depth, created_by;
-                   distance_bound=Inf, verification_status=nothing)
+                   distance_bound=Inf, verification_status=nothing, constraints=LemmaStatement[])
     n = Node(S.next_node, obligation, parent, side, region, lemmas, cache_in, work_share, depth, created_by;
              distance_bound=distance_bound, verification_status=verification_status)
+    n.constraints = copy(constraints)
     S.nodes[n.id] = n
     S.next_node += 1
     return n
@@ -218,8 +228,16 @@ function validate_tree(S::Session)
         if n.kind == :split
             length(n.children) == 2 || kerr("internal", "split node $id needs 2 children")
             c1, c2 = S.nodes[n.children[1]], S.nodes[n.children[2]]
-            (a, b) = split_box(n.region, n.split_dim, n.split_cut)
-            (c1.region == a && c2.region == b) || kerr("internal", "split node $id children do not partition it")
+            if n.split_block == :relu
+                (c1.region == n.region && c2.region == n.region) || kerr("internal", "relu split node $id changes the region")
+                (length(c1.constraints) == length(c2.constraints) == length(n.constraints) + 1 &&
+                 c1.constraints[1:end-1] == n.constraints && c2.constraints[1:end-1] == n.constraints) ||
+                    kerr("internal", "relu split node $id children do not extend its constraints")
+            else
+                (a, b) = split_box(n.region, n.split_dim, n.split_cut)
+                (c1.region == a && c2.region == b) || kerr("internal", "split node $id children do not partition it")
+                (c1.constraints == n.constraints && c2.constraints == n.constraints) || kerr("internal", "split node $id changes constraints")
+            end
         elseif n.kind == :assume
             length(n.children) == 1 || kerr("internal", "assume node $id needs 1 child")
             S.nodes[n.children[1]].region == n.region || kerr("internal", "assume child region differs")

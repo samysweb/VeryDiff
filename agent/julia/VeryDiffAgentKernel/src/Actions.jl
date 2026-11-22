@@ -36,8 +36,19 @@ function do_check!(S::Session, n::Node)
     a = obl.adapter
     t = time()
     res = run_propagation(S, n.region, n.cache_in, n.lemmas_in_scope, stop_layer(a);
-                          verification_status=n.verification_status)
+                          verification_status=n.verification_status, constraints=n.constraints)
     S.n_checks += 1
+    if !isnothing(res.infeasible)
+        # The bounds at some ReLU input are empty: no concrete execution satisfies this node's constraints.
+        n.cache_out = res.cache
+        n.distance_bound = -Inf
+        n.kind = :closed
+        n.evidence = Dict{String,Any}("distance_bound" => -Inf, "check" => "infeasible", "infeasible" => res.infeasible)
+        n.last_check = Dict{String,Any}("holds" => true, "distance_bound" => -Inf, "outcome" => "closed",
+            "reason" => "infeasible: empty bounds at ReLU layer $(res.infeasible["layer"]) ($(res.infeasible["var"])[$(res.infeasible["neuron"])])",
+            "seconds" => round(time() - t; digits=4), "inconsistent_layers" => res.inconsistent, "infeasible" => res.infeasible)
+        return :closed, res, nothing
+    end
     sat, cex, heur, status′, db = adapter_check(a, S.X1, S.X2, res.Zin, res.Zout, n.verification_status)
     n.cache_out = res.cache                         # owned: run_propagation deep-copied cache_in
     n.distance_bound = db
@@ -134,9 +145,11 @@ function do_split!(S::Session, n::Node, d::Int, cut::Union{Nothing,Float64}; dim
     b1, b2 = split_box(n.region, d, c)
     parent_cache = inheritable_cache(n)
     c1 = new_node!(S, n.obligation, n.id, 1, b1, n.lemmas_in_scope, deepcopy(parent_cache), n.work_share / 2,
-                   n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status)
+                   n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status,
+                   constraints=n.constraints)
     c2 = new_node!(S, n.obligation, n.id, 2, b2, n.lemmas_in_scope, deepcopy(parent_cache), n.work_share / 2,
-                   n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status)
+                   n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status,
+                   constraints=n.constraints)
     n.kind = :split
     n.split_block = dim_block
     n.split_dim = d
@@ -169,6 +182,53 @@ function split!(S::Session, node::Int, d::Int; cut=nothing, cuts=nothing, dim_bl
         c1, c2 = do_split!(S, n, d, isnothing(cut) ? nothing : Float64(cut); dim_block=blk)
         n.rationale = rationale
         return Dict("node" => node, "children" => [c1.id, c2.id], "cut" => n.split_cut)
+    end
+end
+
+"""
+Case split of an open leaf on a hidden pre-activation: variable `var` ∈ {"z1","z2","d"} (N1, N2, N1−N2) of
+`neuron` at the input of ReLU layer `layer`, at threshold `t`: child 1 assumes v ≤ t, child 2 assumes v ≥ t.
+Both children keep the parent's region; the constraint is seeded into the bounds cache of every propagation
+below (with t = 0 on z1/z2 this is a ReLU phase split). Exhaustive by construction, so no proof obligation.
+"""
+function do_split_relu!(S::Session, n::Node, layer::Int, var::String, neuron::Int, t::Float64; created_by::Symbol=:agent)
+    require_open_leaf(n)
+    layer in S.relu_layers || kerr("precondition", "layer $layer is not a ReLU layer (ReLU layers: $(S.relu_layers))")
+    var in ("z1", "z2", "d") || kerr("precondition", "var must be z1, z2 or d")
+    isfinite(t) || kerr("precondition", "threshold must be finite")
+    w = relu_width(S, layer)
+    1 <= neuron <= w || kerr("precondition", "neuron $neuron out of range 1:$w")
+    parent_cache = inheritable_cache(n)
+    kids = Node[]
+    for side in (1, 2)
+        lo, hi = side == 1 ? (-Inf, t) : (t, Inf)
+        st = var == "d"  ? LemmaStatement(layer, [neuron], [lo], [hi], nothing, nothing, nothing, nothing) :
+             var == "z1" ? LemmaStatement(layer, [neuron], [-Inf], [Inf], [lo], [hi], nothing, nothing) :
+                           LemmaStatement(layer, [neuron], [-Inf], [Inf], nothing, nothing, [lo], [hi])
+        c = new_node!(S, n.obligation, n.id, side, n.region, n.lemmas_in_scope, deepcopy(parent_cache), n.work_share / 2,
+                      n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status,
+                      constraints=vcat(n.constraints, [st]))
+        push!(kids, c)
+    end
+    n.kind = :split
+    n.split_block = :relu
+    n.split_dim = 0
+    n.split_cut = t
+    n.bsplit = (layer, var, neuron)
+    n.children = [kids[1].id, kids[2].id]
+    return kids[1], kids[2]
+end
+
+relu_width(S::Session, layer::Int) = S.relu_widths[layer]
+
+function split_relu!(S::Session, node::Int, layer::Int, neuron::Int; var::AbstractString="z1", t=0.0,
+                     rationale::AbstractString="")
+    timed(S) do
+        n = getnode(S, node)
+        log_action!(S, "split_relu", Dict("node" => node, "layer" => layer, "neuron" => neuron, "var" => var, "t" => t), rationale)
+        c1, c2 = do_split_relu!(S, n, layer, String(var), neuron, Float64(t))
+        n.rationale = rationale
+        return Dict("node" => node, "children" => [c1.id, c2.id], "constraint" => "child $(c1.id): $var[$neuron] <= $t at ReLU $layer; child $(c2.id): >= $t")
     end
 end
 
@@ -211,7 +271,7 @@ function prune!(S::Session, node::Int; rationale::AbstractString="")
         discard_below!(S, n)
         n.kind = :open
         n.evidence = nothing
-        n.split_dim = 0; n.split_cut = NaN; n.split_block = :primary
+        n.split_dim = 0; n.split_cut = NaN; n.split_block = :primary; n.bsplit = nothing
         n.rationale = rationale
         return Dict("node" => node, "removed" => before - length(S.nodes), "verdict" => session_verdict(S))
     end
