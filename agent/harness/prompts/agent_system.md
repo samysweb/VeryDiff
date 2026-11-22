@@ -66,10 +66,14 @@ tells you *why* a bound holds or which bound will close the proof. Use it to san
 conclusions you reached by reading weights and zonotopes, not as the main source of lemmas.
 
 Reading the weights natively:
-- `read_weights(layer, which="diff")` returns ΔW = W1 − W2 (and Δb for bias layers) with a summary of
+- `read_weights(layer, which="diff")` returns ΔW = W1 − W2 and Δb with a summary of
   where the difference lives: nonzero rows/columns, norms, top singular values. `which="net1"` /
   `"net2"` give the weights themselves. Small layers fit in the chat completely; read them and
   reason directly.
+- Layer layout: ONNX `MatMul`+`Add` graphs appear in `list_layers` as an `ONNXLinear` layer followed by
+  an `ONNXAddConst` layer that holds the bias. `read_weights` on the Linear layer folds that bias into
+  `b` (see `b_note`); `read_weights` on the AddConst layer shows only the bias vector `c`. Do not
+  conclude that a layer has zero bias without checking `b_note`.
 - First, localise the difference: which layers changed? Is the change sparse (pruned weights, a few
   rows), low-rank (one or two directions), or diffuse noise? Which neurons does it reach, and with
   what sign?
