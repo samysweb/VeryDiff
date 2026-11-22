@@ -185,7 +185,12 @@ function relaxation_columns(S::Session, res::PropResult)
         L = layer_by_idx(S, k)
         bc = res.cache.bounds_cache[k]
         Zo = res.ps.zono_storage.zonotopes[get_outputs(L)[1]].zonotope
-        sel = get_selectors([bc.lower₁ bc.upper₁], [bc.lower₂ bc.upper₂], [bc.∂lower bc.∂upper])
+        sel = collect(get_selectors([bc.lower₁ bc.upper₁], [bc.lower₂ bc.upper₂], [bc.∂lower bc.∂upper]))
+        if S.fallback
+            Zi = res.ps.zono_storage.zonotopes[get_inputs(L)[1]].zonotope
+            fresh = get_selectors(zono_bounds(Zi.Z₁), zono_bounds(Zi.Z₂), zono_bounds(Zi.∂Z))[10]
+            VeryDiff.Transformers.one_sided_diff_fallback!(sel[6], sel[7], sel[8], sel[9], sel[10], fresh)
+        end
         rows = Dict("z1" => findall((bc.lower₁ .< 0) .& (bc.upper₁ .> 0)),
                     "z2" => findall((bc.lower₂ .< 0) .& (bc.upper₂ .> 0)),
                     "d" => findall(sel[8] .| sel[9] .| sel[10]))

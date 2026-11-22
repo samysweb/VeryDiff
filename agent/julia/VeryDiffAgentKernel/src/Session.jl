@@ -36,6 +36,7 @@ mutable struct Session
     n_checks::Int                     # propagations done by proof actions (check / auto_expand / prove_lemma)
     n_trial_propagations::Int         # propagations spent in dry runs (trial_lemma); not proof cost
     csb::Bool                         # option: consistency tightening z1 = z2 + d of ReLU-input bounds
+    fallback::Bool                    # option: VeryDiff.ONE_SIDED_DIFF_FALLBACK during this session's propagations
 end
 
 const SESSION = Ref{Union{Nothing,Session}}(nothing)
@@ -122,7 +123,7 @@ function relu_widths(P)
     return Dict{Int,Int}(k => length(o[P.pos_names[get_inputs(only(l for l in get_layers(P.N) if l.layer_idx == k))[1]]]) for k in P.relu)
 end
 
-function open_session(net1::String, net2::String, spec::String, property::AbstractDict; csb::Bool=false)
+function open_session(net1::String, net2::String, spec::String, property::AbstractDict; csb::Bool=false, fallback::Bool=false)
     t = time()
     VeryDiff.USE_DIFFZONO[] = true
     VeryDiff.NEW_HEURISTIC[] = true
@@ -135,7 +136,7 @@ function open_session(net1::String, net2::String, spec::String, property::Abstra
     S = Session(abspath(net1), abspath(net2), abspath(spec), P.N, P.o1, P.o2, executable_network(P.o1), executable_network(P.o2), P.softmax_removed,
         P.out_tensor, P.pos_names, P.relu, relu_widths(P), P.root, active, adapter, canon, h, commit, tree,
         Dict{Int,Node}(), Dict{Int,Obligation}(), Dict{Int,Lemma}(), 1, 1, 1, 0, nothing,
-        Dict{String,Any}[], 0.0, time(), 0, 0, 0, csb)
+        Dict{String,Any}[], 0.0, time(), 0, 0, 0, csb, fallback)
     root = new_node!(S, 0, 0, 0, P.root, Int[], TaskBounds(), 1.0, 0, :agent)
     S.main_obligation = new_obligation!(S, :main, root.id, 0, adapter)
     root.obligation = S.main_obligation

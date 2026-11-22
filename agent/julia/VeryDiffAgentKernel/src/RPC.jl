@@ -37,8 +37,9 @@ const METHODS = Dict{String,Function}(
     "warmup" => p -> warmup(),
     "ping" => p -> Dict("pong" => true, "kernel_version" => KERNEL_VERSION),
     "open_session" => p -> begin
-        S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"]; csb=Bool(opt(p, "csb", false)))
-        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
+        S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"]; csb=Bool(opt(p, "csb", false)),
+                         fallback=Bool(opt(p, "fallback", false)))
+        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "fallback" => S.fallback, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
              "input_dim" => dim(S.root_box), "active_dims" => S.active_dims, "relu_layers" => S.relu_layers,
              "softmax_removed" => S.softmax_removed, "verydiff_commit" => S.verydiff_commit)
     end,

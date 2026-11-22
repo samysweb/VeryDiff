@@ -453,6 +453,41 @@ end
         end end), "REJECT")
 end
 
+@testset "One-sided differential fallback (src flag) with ReLU splits" begin
+    S = open_session(INST["safe_hard"]["net1"], INST["safe_hard"]["net2"], INST["safe_hard"]["spec"],
+                     Dict("kind" => "epsilon", "epsilon" => INST["safe_hard"]["epsilon"]); fallback=true)
+    check!(S, 1)
+    sc = relu_scores(S, 1; top_k=20)
+    e = first(x for x in sc["top"] if x["z1"][1] < 0 < x["z1"][2] && x["z2"][1] < 0 < x["z2"][2])
+    kids = apply_action!(S, 1, Dict("kind" => "phase4", "layer" => e["layer"], "neuron" => e["neuron"]))
+    @test length(kids) == 4
+    rng = MersenneTwister(3)
+    for c in kids
+        check!(S, c)
+        S.nodes[c].kind == :closed && continue
+        z = K.inspect_propagation(S, S.nodes[c]).Zout
+        bd = K.zono_bounds(z.∂Z)
+        for _ in 1:200
+            x = S.root_box.lo .+ rand(rng, length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo)
+            ep = eval_point(S, x)
+            h1 = ep["hidden_preact"][string(e["layer"])]["n1"][e["neuron"]]; h2 = ep["hidden_preact"][string(e["layer"])]["n2"][e["neuron"]]
+            st = S.nodes[c].constraints
+            inside = all(st) do q
+                v = isnothing(q.n1lo) ? h2 : h1
+                lo_, hi_ = isnothing(q.n1lo) ? (q.n2lo[1], q.n2hi[1]) : (q.n1lo[1], q.n1hi[1])
+                lo_ <= v <= hi_
+            end
+            inside && @test all(bd[:, 1] .- 1e-9 .<= ep["y1"] .- ep["y2"] .<= bd[:, 2] .+ 1e-9)
+        end
+    end
+    for c in kids
+        S.nodes[c].kind == :open && auto_expand!(S, c; max_nodes=100000)
+    end
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, "safe_hard"), "ACCEPT")
+    VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = false
+end
+
 @testset "Checker mutations" begin
     S = open_case("safe_split")
     auto_expand!(S, S.obligations[S.main_obligation].root; max_nodes=10_000)
