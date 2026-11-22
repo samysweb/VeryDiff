@@ -12,7 +12,8 @@ function lp_fallback(S::Session, n::Node, obl::Obligation, res::PropResult)
     Zo = res.Zout
     if obl.kind == :main
         a isa EpsAdapter || return false, nothing, NaN
-        off, m = var_layout(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z]; constraints=n.constraints))
+        off, m = var_layout(vcat(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z]; constraints=n.constraints),
+                                 S.lp_relax ? relax_zonos(S, res) : Any[]))
         objs = Tuple{String,AffRow,Float64}[]
         for i in 1:length(Zo.∂Z.c)
             r = affrow(Zo.∂Z, i, off, m)
@@ -21,10 +22,11 @@ function lp_fallback(S::Session, n::Node, obl::Obligation, res::PropResult)
         end
     else
         st = S.lemmas[obl.lemma].stmt
-        off, m = var_layout(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z, Zo.Z₁, Zo.Z₂]; constraints=n.constraints))
+        off, m = var_layout(vcat(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z, Zo.Z₁, Zo.Z₂]; constraints=n.constraints),
+                                 S.lp_relax ? relax_zonos(S, res) : Any[]))
         objs = [("spec:$k", combo_row(Zo, terms, off, m), rhs) for (k, (terms, rhs)) in enumerate(lemma_specs(st))]
     end
-    ok, ev, worst = lp_establish(S, res, n.lemmas_in_scope, objs, off, m; constraints=n.constraints)
+    ok, ev, worst = lp_establish(S, res, n.lemmas_in_scope, objs, off, m; constraints=n.constraints, relax=S.lp_relax)
     return ok, (ok ? ev : nothing), worst
 end
 
@@ -57,7 +59,7 @@ function do_check!(S::Session, n::Node)
     outcome = :open
     reason = ""
     lp_ev = nothing
-    if !sat && guards_ok && (!isempty(n.lemmas_in_scope) || !isempty(n.constraints))
+    if !sat && guards_ok && (!isempty(n.lemmas_in_scope) || !isempty(n.constraints) || S.lp_relax)
         sat, lp_ev, db_lp = lp_fallback(S, n, obl, res)
         sat && (db = obl.kind == :main ? a.epsilon + db_lp : db_lp)
     end
