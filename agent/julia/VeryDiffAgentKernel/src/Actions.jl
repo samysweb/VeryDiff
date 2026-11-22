@@ -222,6 +222,49 @@ end
 
 relu_dim(S::Session, layer::Int) = S.relu_widths[layer]
 
+"""
+Relational case split: Σ_k a_k·v_k ≤ t (child 1) or ≥ t (child 2) over pre-activations v ∈ {z1, z2, d} at the input
+of ReLU layer `layer`. With v = z1 of the first ReLU layer (affine in the input) this is an arbitrary oblique cut
+of the input box. Exhaustive; the constraint is used by contraction, dual-tightened bounds and the final LP.
+"""
+function do_split_lin!(S::Session, n::Node, layer::Int, terms::Vector{Tuple{String,Int,Float64}}, t::Float64; created_by::Symbol=:agent)
+    require_open_leaf(n)
+    layer in S.relu_layers || kerr("precondition", "layer $layer is not a ReLU layer")
+    isfinite(t) || kerr("precondition", "threshold must be finite")
+    isempty(terms) && kerr("precondition", "terms must be non-empty")
+    w = relu_dim(S, layer)
+    for (v, j, a) in terms
+        v in ("z1", "z2", "d") || kerr("precondition", "term variable must be z1|z2|d")
+        1 <= j <= w || kerr("precondition", "term neuron $j out of range 1:$w")
+        isfinite(a) || kerr("precondition", "term coefficients must be finite")
+    end
+    parent_cache = inheritable_cache(n)
+    kids = Node[]
+    for side in (1, 2)
+        tt = side == 1 ? terms : [(v, j, -a) for (v, j, a) in terms]
+        st = LemmaStatement(layer, Int[], Float64[], Float64[], nothing, nothing, nothing, nothing, tt, side == 1 ? t : -t)
+        c = new_node!(S, n.obligation, n.id, side, n.region, n.lemmas_in_scope, deepcopy(parent_cache), n.work_share / 2,
+                      n.depth + 1, created_by; distance_bound=n.distance_bound, verification_status=n.verification_status,
+                      constraints=vcat(n.constraints, [st]))
+        push!(kids, c)
+    end
+    n.kind = :split; n.split_block = :lin; n.split_dim = 0; n.split_cut = t
+    n.lsplit = (layer, copy(terms))
+    n.children = [kids[1].id, kids[2].id]
+    return kids[1], kids[2]
+end
+
+function split_lin!(S::Session, node::Int, layer::Int, terms, t; rationale::AbstractString="")
+    timed(S) do
+        n = getnode(S, node)
+        tr = Tuple{String,Int,Float64}[(String(x[1]), Int(x[2]), Float64(x[3])) for x in terms]
+        log_action!(S, "split_lin", Dict("node" => node, "layer" => layer, "terms" => [[a, b, c] for (a, b, c) in tr], "t" => t), rationale)
+        c1, c2 = do_split_lin!(S, n, layer, tr, Float64(t))
+        n.rationale = rationale
+        return Dict("node" => node, "children" => [c1.id, c2.id])
+    end
+end
+
 function split_relu!(S::Session, node::Int, layer::Int, neuron::Int; var::AbstractString="z1", t=0.0,
                      rationale::AbstractString="")
     timed(S) do
@@ -272,7 +315,7 @@ function prune!(S::Session, node::Int; rationale::AbstractString="")
         discard_below!(S, n)
         n.kind = :open
         n.evidence = nothing
-        n.split_dim = 0; n.split_cut = NaN; n.split_block = :primary; n.bsplit = nothing
+        n.split_dim = 0; n.split_cut = NaN; n.split_block = :primary; n.bsplit = nothing; n.lsplit = nothing
         n.rationale = rationale
         return Dict("node" => node, "removed" => before - length(S.nodes), "verdict" => session_verdict(S))
     end

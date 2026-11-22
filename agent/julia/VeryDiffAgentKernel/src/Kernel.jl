@@ -91,6 +91,9 @@ function contract_zonos!(P::PropState, Zi, stmts::Vector{LemmaStatement})
         if !isnothing(st.n2lo); push!(rows, (affrow(Zi.Z₂, j, off, m), st.n2lo[k], st.n2hi[k])); end
         if isfinite(st.dlo[k]) || isfinite(st.dhi[k]); push!(rows, (affrow(Zi.∂Z, j, off, m), st.dlo[k], st.dhi[k])); end
     end
+    for st in stmts
+        isempty(st.terms) || push!(rows, (combo_row(Zi, st.terms, off, m), -Inf, st.rhs))
+    end
     for _ in 1:2, (row, l, u) in rows
         contract_row!(lo, hi, row.g, u - row.c) || return Dict{String,Any}("contraction" => true)
         contract_row!(lo, hi, .-row.g, row.c - l) || return Dict{String,Any}("contraction" => true)

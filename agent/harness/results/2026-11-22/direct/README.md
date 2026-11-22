@@ -58,3 +58,18 @@ check. Per band (propagations): r ≤ 0.55: 1, [0.55,0.65]: 1, [0.65,0.75]: 1, [
 Development cost: one failed band layout ([0.95,1.05] did not close within 30k checks), a few hundred probe
 propagations, sampling in numpy. Phase splits on the high-loss units (N2 unit 69, 34, 50, 76) only gained
 0.02–0.08 in one branch and were not used.
+
+## Hard subgoal r ∈ [0.95, 1.05] (`hard_band/`): no better strategy found
+Current proof: four 0.025-wide bands, 3827 + 6905 + 6789 + 3449 = 20,970 propagations (a single band did not close
+within 30k). Findings:
+* True maxima (optimised, `truemax.py`): [0.95,0.975] 0.882, [0.975,1.0] 0.895, [1.0,1.025] 0.901, [1.025,1.05]
+  0.906 — margin ≈ 0.1. Zonotope bound in [0.975,1.0]: 1.109 = centre 0.601 + input symbols 0.282 + layer-2
+  differential relaxations 0.211 + rest; the LP with the band rows gives 1.064.
+* In a narrow band Δ_j = W[j,45]·r is almost constant, so each mixed layer-2 unit contributes a step
+  clamp(h_j, 0, Δ_j); no convex single-unit relaxation captures it, and ~12 such independent steps add up.
+  Inside the slab the true difference is nearly linear (residual std 0.008–0.019), but 35 units have phase
+  boundaries through it: 376 distinct activation patterns in 680 samples (not saturated).
+* Tried, all worse than the 0.025 bands: layer-1 region enumeration by phase splits (6801 / 30,860 vs 3827 / 6905;
+  no branch refuted, since single-row duality cannot detect joint infeasibility); one oblique cut along the
+  in-band linear model (new primitive `split_lin`; 11,478 vs 6530); 4-way phase splits on the top layer-2 units
+  (one branch infeasible, the others 1.01–1.11 vs 1.064); 0.0125-wide bands (27,120 vs 20,970).
