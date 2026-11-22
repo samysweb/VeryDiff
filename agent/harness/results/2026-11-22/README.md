@@ -57,3 +57,7 @@
   whole box −1907 (proof 2405, main 1483 → 985); x5<0 half −1761 (2223, 1377 → 915);
   cells x5∈[−0.5,−0.375] −669, [−0.375,−0.25] −747, [−0.25,0] −343. The lemma never pays off, at any placement.
   (The kernel's numbers equal Opus's earlier sandbox proxies, 2405/985.)
+* ε sweep, unit-49 phase lemma on the whole box (`eps_sweep_unit49.jl`), nodes:
+  ε=0.05: proof 2405, main 1483→985 (net −1907); ε=0.02: 2405, 2209→1435 (−1631);
+  ε=0.01: 2405, 2869→2057 (−1593); ε=0.005: 2405, 3875→2985 (−1515). Proof cost is independent of ε; the
+  saving grows only slowly (498→890) because the main tree grows roughly logarithmically in 1/ε.
