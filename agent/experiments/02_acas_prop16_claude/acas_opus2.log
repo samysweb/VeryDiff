@@ -1,0 +1,2 @@
+{"instance": "acas_1_1_pruned5_prop16", "epsilon": 0.05, "expected": "SAFE (old log: 1533 zonotopes)", "agent_wall_s": 755.7, "llm_actions": 43, "cost_usd": 1.4514335000000003, "models": "claude-haiku-5-5;claude-opus-5-5", "agent_verdict": "SAFE", "checker": "ACCEPT SAFE nodes=1451 lemmas=0", "nodes": 1451, "auto_nodes": 1236, "manual_nodes": 215, "lemmas_proposed": 1, "lemmas_proven": 0, "lemmas_used": 0, "proof_actions": 33, "cert_bytes": 288388, "kernel_seconds": 5.655}
+summary: /tmp/claude-0/acas_opus2/summary.csv

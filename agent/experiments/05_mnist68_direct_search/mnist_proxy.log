@@ -1,0 +1,233 @@
+1 expansions, nodes 3, open 1, relu 1, input 0 (alt 0), top bound 1.1871, 8s
+2 expansions, nodes 5, open 2, relu 2, input 0 (alt 0), top bound 1.1871, 9s
+3 expansions, nodes 7, open 3, relu 3, input 0 (alt 0), top bound 1.1871, 9s
+4 expansions, nodes 9, open 4, relu 4, input 0 (alt 0), top bound 1.1871, 9s
+5 expansions, nodes 11, open 5, relu 4, input 1 (alt 1), top bound 1.1926, 9s
+200 expansions, nodes 401, open 190, relu 47, input 153 (alt 110), top bound 1.1150, 17s
+400 expansions, nodes 801, open 358, relu 122, input 278 (alt 193), top bound 1.1056, 26s
+600 expansions, nodes 1201, open 532, relu 183, input 417 (alt 292), top bound 1.0994, 35s
+800 expansions, nodes 1601, open 713, relu 254, input 546 (alt 382), top bound 1.1050, 43s
+1000 expansions, nodes 2001, open 884, relu 314, input 686 (alt 481), top bound 1.0924, 51s
+1200 expansions, nodes 2401, open 1063, relu 372, input 828 (alt 586), top bound 1.0898, 61s
+1400 expansions, nodes 2801, open 1233, relu 442, input 958 (alt 681), top bound 1.0881, 70s
+1600 expansions, nodes 3201, open 1402, relu 509, input 1091 (alt 780), top bound 1.0860, 78s
+1800 expansions, nodes 3601, open 1574, relu 589, input 1211 (alt 869), top bound 1.0846, 88s
+2000 expansions, nodes 4001, open 1747, relu 644, input 1356 (alt 981), top bound 1.0833, 97s
+2200 expansions, nodes 4401, open 1927, relu 717, input 1483 (alt 1079), top bound 1.0821, 106s
+2400 expansions, nodes 4801, open 2096, relu 776, input 1624 (alt 1178), top bound 1.0811, 115s
+2600 expansions, nodes 5201, open 2269, relu 861, input 1739 (alt 1267), top bound 1.0799, 124s
+2800 expansions, nodes 5601, open 2439, relu 927, input 1873 (alt 1374), top bound 1.0791, 134s
+3000 expansions, nodes 6001, open 2606, relu 1022, input 1978 (alt 1448), top bound 1.0783, 142s
+3200 expansions, nodes 6401, open 2777, relu 1084, input 2116 (alt 1552), top bound 1.0788, 151s
+3400 expansions, nodes 6801, open 2952, relu 1151, input 2249 (alt 1656), top bound 1.0767, 160s
+3600 expansions, nodes 7201, open 3124, relu 1222, input 2378 (alt 1753), top bound 1.0760, 169s
+3800 expansions, nodes 7601, open 3290, relu 1285, input 2515 (alt 1855), top bound 1.0808, 179s
+4000 expansions, nodes 8001, open 3447, relu 1343, input 2657 (alt 1953), top bound 1.0747, 188s
+4200 expansions, nodes 8401, open 3620, relu 1414, input 2786 (alt 2052), top bound 1.0742, 197s
+4400 expansions, nodes 8801, open 3792, relu 1497, input 2903 (alt 2141), top bound 1.0821, 206s
+4600 expansions, nodes 9201, open 3954, relu 1563, input 3037 (alt 2238), top bound 1.0731, 215s
+4800 expansions, nodes 9601, open 4135, relu 1641, input 3159 (alt 2332), top bound 1.0728, 224s
+5000 expansions, nodes 10001, open 4306, relu 1708, input 3292 (alt 2429), top bound 1.0722, 232s
+5200 expansions, nodes 10401, open 4459, relu 1772, input 3428 (alt 2530), top bound 1.0796, 240s
+5400 expansions, nodes 10801, open 4629, relu 1840, input 3560 (alt 2627), top bound 1.0713, 250s
+5600 expansions, nodes 11201, open 4815, relu 1953, input 3647 (alt 2692), top bound 1.0711, 259s
+5800 expansions, nodes 11601, open 4997, relu 2033, input 3767 (alt 2776), top bound 1.0709, 268s
+6000 expansions, nodes 12001, open 5178, relu 2105, input 3895 (alt 2873), top bound 1.0705, 277s
+6200 expansions, nodes 12401, open 5346, relu 2180, input 4020 (alt 2965), top bound 1.0761, 286s
+6400 expansions, nodes 12801, open 5511, relu 2253, input 4147 (alt 3061), top bound 1.0700, 295s
+6600 expansions, nodes 13201, open 5674, relu 2324, input 4276 (alt 3165), top bound 1.0878, 306s
+6800 expansions, nodes 13601, open 5846, relu 2385, input 4415 (alt 3276), top bound 1.0691, 315s
+7000 expansions, nodes 14001, open 6004, relu 2448, input 4552 (alt 3379), top bound 1.0687, 324s
+7200 expansions, nodes 14401, open 6165, relu 2502, input 4698 (alt 3493), top bound 1.0683, 333s
+7400 expansions, nodes 14801, open 6322, relu 2576, input 4824 (alt 3579), top bound 1.0709, 343s
+7600 expansions, nodes 15201, open 6494, relu 2645, input 4955 (alt 3672), top bound 1.0798, 353s
+7800 expansions, nodes 15601, open 6664, relu 2726, input 5074 (alt 3769), top bound 1.0724, 362s
+8000 expansions, nodes 16001, open 6838, relu 2813, input 5187 (alt 3855), top bound 1.0718, 373s
+8200 expansions, nodes 16401, open 7014, relu 2911, input 5289 (alt 3933), top bound 1.0669, 382s
+8400 expansions, nodes 16801, open 7188, relu 2985, input 5415 (alt 4022), top bound 1.0728, 392s
+8600 expansions, nodes 17201, open 7354, relu 3052, input 5548 (alt 4119), top bound 1.0665, 402s
+8800 expansions, nodes 17601, open 7515, relu 3121, input 5679 (alt 4207), top bound 1.0792, 412s
+9000 expansions, nodes 18001, open 7683, relu 3214, input 5786 (alt 4286), top bound 1.0660, 422s
+9200 expansions, nodes 18401, open 7840, relu 3283, input 5917 (alt 4382), top bound 1.0657, 431s
+9400 expansions, nodes 18801, open 7992, relu 3337, input 6063 (alt 4482), top bound 1.0654, 441s
+9600 expansions, nodes 19201, open 8147, relu 3405, input 6195 (alt 4584), top bound 1.0652, 451s
+9800 expansions, nodes 19601, open 8309, relu 3468, input 6332 (alt 4682), top bound 1.0734, 461s
+10000 expansions, nodes 20001, open 8476, relu 3527, input 6473 (alt 4790), top bound 1.0668, 470s
+10200 expansions, nodes 20401, open 8631, relu 3587, input 6613 (alt 4887), top bound 1.0646, 481s
+10400 expansions, nodes 20801, open 8797, relu 3669, input 6731 (alt 4973), top bound 1.0644, 491s
+10600 expansions, nodes 21201, open 8951, relu 3731, input 6869 (alt 5080), top bound 1.0667, 501s
+10800 expansions, nodes 21601, open 9112, relu 3826, input 6974 (alt 5144), top bound 1.0639, 509s
+11000 expansions, nodes 22001, open 9274, relu 3882, input 7118 (alt 5254), top bound 1.0637, 519s
+11200 expansions, nodes 22401, open 9441, relu 3951, input 7249 (alt 5345), top bound 1.0635, 529s
+11400 expansions, nodes 22801, open 9603, relu 4004, input 7396 (alt 5441), top bound 1.0633, 538s
+11600 expansions, nodes 23201, open 9755, relu 4072, input 7528 (alt 5543), top bound 1.0809, 549s
+11800 expansions, nodes 23601, open 9911, relu 4130, input 7670 (alt 5646), top bound 1.0629, 559s
+12000 expansions, nodes 24001, open 10080, relu 4198, input 7802 (alt 5743), top bound 1.0627, 569s
+12200 expansions, nodes 24401, open 10240, relu 4258, input 7942 (alt 5847), top bound 1.0625, 579s
+12400 expansions, nodes 24801, open 10405, relu 4331, input 8069 (alt 5951), top bound 1.0623, 590s
+12600 expansions, nodes 25201, open 10568, relu 4414, input 8186 (alt 6036), top bound 1.0621, 601s
+12800 expansions, nodes 25601, open 10726, relu 4493, input 8307 (alt 6112), top bound 1.0637, 611s
+13000 expansions, nodes 26001, open 10893, relu 4569, input 8431 (alt 6201), top bound 1.0618, 622s
+13200 expansions, nodes 26401, open 11060, relu 4651, input 8549 (alt 6286), top bound 1.0616, 632s
+13400 expansions, nodes 26801, open 11219, relu 4713, input 8687 (alt 6387), top bound 1.0614, 641s
+13600 expansions, nodes 27201, open 11373, relu 4791, input 8809 (alt 6481), top bound 1.0752, 651s
+13800 expansions, nodes 27601, open 11523, relu 4845, input 8955 (alt 6587), top bound 1.0610, 662s
+14000 expansions, nodes 28001, open 11691, relu 4920, input 9080 (alt 6682), top bound 1.0701, 672s
+14200 expansions, nodes 28401, open 11846, relu 4976, input 9224 (alt 6799), top bound 1.0606, 683s
+14400 expansions, nodes 28801, open 12013, relu 5047, input 9353 (alt 6896), top bound 1.0710, 694s
+14600 expansions, nodes 29201, open 12168, relu 5130, input 9470 (alt 6982), top bound 1.0617, 704s
+14800 expansions, nodes 29601, open 12329, relu 5202, input 9598 (alt 7075), top bound 1.0673, 714s
+15000 expansions, nodes 30001, open 12483, relu 5268, input 9732 (alt 7166), top bound 1.0600, 725s
+15200 expansions, nodes 30401, open 12636, relu 5352, input 9848 (alt 7243), top bound 1.0599, 736s
+15400 expansions, nodes 30801, open 12801, relu 5424, input 9976 (alt 7338), top bound 1.0610, 746s
+15600 expansions, nodes 31201, open 12959, relu 5489, input 10111 (alt 7434), top bound 1.0596, 757s
+15800 expansions, nodes 31601, open 13105, relu 5538, input 10262 (alt 7544), top bound 1.0595, 767s
+16000 expansions, nodes 32001, open 13259, relu 5607, input 10393 (alt 7642), top bound 1.0693, 777s
+16200 expansions, nodes 32401, open 13409, relu 5664, input 10536 (alt 7742), top bound 1.0627, 788s
+16400 expansions, nodes 32801, open 13566, relu 5712, input 10688 (alt 7852), top bound 1.0590, 799s
+16600 expansions, nodes 33201, open 13713, relu 5807, input 10793 (alt 7933), top bound 1.0611, 809s
+16800 expansions, nodes 33601, open 13869, relu 5868, input 10932 (alt 8043), top bound 1.0677, 820s
+17000 expansions, nodes 34001, open 14023, relu 5933, input 11067 (alt 8142), top bound 1.0586, 831s
+17200 expansions, nodes 34401, open 14177, relu 6000, input 11200 (alt 8232), top bound 1.0585, 842s
+17400 expansions, nodes 34801, open 14329, relu 6077, input 11323 (alt 8315), top bound 1.0682, 853s
+17600 expansions, nodes 35201, open 14473, relu 6142, input 11458 (alt 8406), top bound 1.0582, 864s
+17800 expansions, nodes 35601, open 14623, relu 6207, input 11593 (alt 8502), top bound 1.0581, 875s
+18000 expansions, nodes 36001, open 14791, relu 6278, input 11722 (alt 8587), top bound 1.0580, 886s
+18200 expansions, nodes 36401, open 14950, relu 6366, input 11834 (alt 8659), top bound 1.0579, 897s
+18400 expansions, nodes 36801, open 15100, relu 6424, input 11976 (alt 8758), top bound 1.0578, 909s
+18600 expansions, nodes 37201, open 15256, relu 6499, input 12101 (alt 8841), top bound 1.0576, 919s
+18800 expansions, nodes 37601, open 15412, relu 6562, input 12238 (alt 8940), top bound 1.0580, 929s
+19000 expansions, nodes 38001, open 15549, relu 6623, input 12377 (alt 9039), top bound 1.0595, 941s
+19200 expansions, nodes 38401, open 15708, relu 6700, input 12500 (alt 9139), top bound 1.0669, 952s
+19400 expansions, nodes 38801, open 15857, relu 6756, input 12644 (alt 9245), top bound 1.0571, 964s
+19600 expansions, nodes 39201, open 16001, relu 6818, input 12782 (alt 9344), top bound 1.0569, 975s
+19800 expansions, nodes 39601, open 16152, relu 6885, input 12915 (alt 9437), top bound 1.0568, 984s
+20000 expansions, nodes 40001, open 16305, relu 6945, input 13055 (alt 9545), top bound 1.0567, 994s
+20200 expansions, nodes 40401, open 16455, relu 7021, input 13179 (alt 9630), top bound 1.0717, 1005s
+20400 expansions, nodes 40801, open 16610, relu 7088, input 13312 (alt 9729), top bound 1.0605, 1016s
+20600 expansions, nodes 41201, open 16771, relu 7141, input 13459 (alt 9836), top bound 1.0563, 1027s
+20800 expansions, nodes 41601, open 16928, relu 7209, input 13591 (alt 9920), top bound 1.0641, 1039s
+21000 expansions, nodes 42001, open 17080, relu 7283, input 13717 (alt 10016), top bound 1.0561, 1048s
+21200 expansions, nodes 42401, open 17235, relu 7334, input 13866 (alt 10116), top bound 1.0559, 1059s
+21400 expansions, nodes 42801, open 17377, relu 7405, input 13995 (alt 10211), top bound 1.0615, 1070s
+21600 expansions, nodes 43201, open 17528, relu 7457, input 14143 (alt 10318), top bound 1.0557, 1081s
+21800 expansions, nodes 43601, open 17686, relu 7536, input 14264 (alt 10403), top bound 1.0556, 1091s
+22000 expansions, nodes 44001, open 17843, relu 7615, input 14385 (alt 10493), top bound 1.0591, 1102s
+22200 expansions, nodes 44401, open 18005, relu 7690, input 14510 (alt 10572), top bound 1.0554, 1113s
+22400 expansions, nodes 44801, open 18149, relu 7757, input 14643 (alt 10658), top bound 1.0553, 1124s
+22600 expansions, nodes 45201, open 18300, relu 7840, input 14760 (alt 10743), top bound 1.0645, 1135s
+22800 expansions, nodes 45601, open 18444, relu 7909, input 14891 (alt 10838), top bound 1.0551, 1146s
+23000 expansions, nodes 46001, open 18594, relu 7972, input 15028 (alt 10943), top bound 1.0550, 1160s
+23200 expansions, nodes 46401, open 18758, relu 8036, input 15164 (alt 11045), top bound 1.0587, 1171s
+23400 expansions, nodes 46801, open 18919, relu 8102, input 15298 (alt 11150), top bound 1.0548, 1183s
+23600 expansions, nodes 47201, open 19074, relu 8155, input 15445 (alt 11260), top bound 1.0564, 1194s
+23800 expansions, nodes 47601, open 19223, relu 8219, input 15581 (alt 11362), top bound 1.0545, 1207s
+24000 expansions, nodes 48001, open 19387, relu 8276, input 15724 (alt 11465), top bound 1.0579, 1220s
+24200 expansions, nodes 48401, open 19536, relu 8337, input 15863 (alt 11571), top bound 1.0543, 1232s
+24400 expansions, nodes 48801, open 19685, relu 8389, input 16011 (alt 11683), top bound 1.0652, 1243s
+24600 expansions, nodes 49201, open 19840, relu 8462, input 16138 (alt 11779), top bound 1.0541, 1254s
+24800 expansions, nodes 49601, open 19986, relu 8514, input 16286 (alt 11874), top bound 1.0540, 1267s
+25000 expansions, nodes 50001, open 20120, relu 8571, input 16429 (alt 11986), top bound 1.0539, 1279s
+25200 expansions, nodes 50401, open 20264, relu 8624, input 16576 (alt 12097), top bound 1.0538, 1290s
+25400 expansions, nodes 50801, open 20417, relu 8691, input 16709 (alt 12199), top bound 1.0537, 1301s
+25600 expansions, nodes 51201, open 20582, relu 8795, input 16805 (alt 12279), top bound 1.0536, 1313s
+25800 expansions, nodes 51601, open 20721, relu 8877, input 16923 (alt 12356), top bound 1.0562, 1325s
+26000 expansions, nodes 52001, open 20865, relu 8950, input 17050 (alt 12431), top bound 1.0535, 1337s
+26200 expansions, nodes 52401, open 21011, relu 9022, input 17178 (alt 12526), top bound 1.0534, 1349s
+26400 expansions, nodes 52801, open 21167, relu 9090, input 17310 (alt 12620), top bound 1.0534, 1361s
+26600 expansions, nodes 53201, open 21326, relu 9148, input 17452 (alt 12721), top bound 1.0548, 1374s
+26800 expansions, nodes 53601, open 21462, relu 9207, input 17593 (alt 12822), top bound 1.0532, 1386s
+27000 expansions, nodes 54001, open 21630, relu 9307, input 17693 (alt 12890), top bound 1.0531, 1399s
+27200 expansions, nodes 54401, open 21775, relu 9370, input 17830 (alt 12995), top bound 1.0530, 1411s
+27400 expansions, nodes 54801, open 21921, relu 9439, input 17961 (alt 13074), top bound 1.0529, 1423s
+27600 expansions, nodes 55201, open 22061, relu 9512, input 18088 (alt 13161), top bound 1.0528, 1435s
+27800 expansions, nodes 55601, open 22218, relu 9585, input 18215 (alt 13250), top bound 1.0559, 1448s
+28000 expansions, nodes 56001, open 22370, relu 9658, input 18342 (alt 13330), top bound 1.0527, 1460s
+28200 expansions, nodes 56401, open 22516, relu 9717, input 18483 (alt 13433), top bound 1.0629, 1472s
+28400 expansions, nodes 56801, open 22666, relu 9787, input 18613 (alt 13534), top bound 1.0525, 1485s
+28600 expansions, nodes 57201, open 22806, relu 9859, input 18741 (alt 13624), top bound 1.0524, 1499s
+28800 expansions, nodes 57601, open 22961, relu 9921, input 18879 (alt 13735), top bound 1.0523, 1511s
+29000 expansions, nodes 58001, open 23115, relu 10005, input 18995 (alt 13828), top bound 1.0522, 1523s
+29200 expansions, nodes 58401, open 23257, relu 10088, input 19112 (alt 13919), top bound 1.0521, 1535s
+29400 expansions, nodes 58801, open 23407, relu 10158, input 19242 (alt 14007), top bound 1.0520, 1547s
+29600 expansions, nodes 59201, open 23553, relu 10242, input 19358 (alt 14097), top bound 1.0534, 1560s
+29800 expansions, nodes 59601, open 23705, relu 10321, input 19479 (alt 14179), top bound 1.0523, 1572s
+30000 expansions, nodes 60001, open 23856, relu 10395, input 19605 (alt 14265), top bound 1.0518, 1584s
+30200 expansions, nodes 60401, open 23999, relu 10454, input 19746 (alt 14361), top bound 1.0536, 1596s
+30400 expansions, nodes 60801, open 24139, relu 10516, input 19884 (alt 14460), top bound 1.0517, 1608s
+30600 expansions, nodes 61201, open 24282, relu 10581, input 20019 (alt 14556), top bound 1.0516, 1621s
+30800 expansions, nodes 61601, open 24438, relu 10654, input 20146 (alt 14642), top bound 1.0515, 1632s
+31000 expansions, nodes 62001, open 24581, relu 10729, input 20271 (alt 14733), top bound 1.0584, 1644s
+31200 expansions, nodes 62401, open 24753, relu 10876, input 20324 (alt 14760), top bound 1.0667, 1657s
+31400 expansions, nodes 62801, open 24906, relu 10975, input 20425 (alt 14827), top bound 1.0698, 1670s
+31600 expansions, nodes 63201, open 25046, relu 11039, input 20561 (alt 14915), top bound 1.0513, 1682s
+31800 expansions, nodes 63601, open 25191, relu 11093, input 20707 (alt 15020), top bound 1.0512, 1697s
+32000 expansions, nodes 64001, open 25334, relu 11152, input 20848 (alt 15119), top bound 1.0512, 1709s
+32200 expansions, nodes 64401, open 25464, relu 11217, input 20983 (alt 15204), top bound 1.0554, 1721s
+32400 expansions, nodes 64801, open 25605, relu 11291, input 21109 (alt 15290), top bound 1.0510, 1733s
+32600 expansions, nodes 65201, open 25752, relu 11359, input 21241 (alt 15384), top bound 1.0513, 1746s
+32800 expansions, nodes 65601, open 25886, relu 11425, input 21375 (alt 15479), top bound 1.0622, 1759s
+33000 expansions, nodes 66001, open 26043, relu 11490, input 21510 (alt 15588), top bound 1.0508, 1772s
+33200 expansions, nodes 66401, open 26185, relu 11552, input 21648 (alt 15689), top bound 1.0611, 1785s
+33400 expansions, nodes 66801, open 26319, relu 11614, input 21786 (alt 15782), top bound 1.0528, 1797s
+33600 expansions, nodes 67201, open 26467, relu 11685, input 21915 (alt 15872), top bound 1.0506, 1808s
+33800 expansions, nodes 67601, open 26603, relu 11745, input 22055 (alt 15981), top bound 1.0549, 1821s
+34000 expansions, nodes 68001, open 26746, relu 11814, input 22186 (alt 16077), top bound 1.0504, 1834s
+34200 expansions, nodes 68401, open 26882, relu 11885, input 22315 (alt 16169), top bound 1.0525, 1846s
+34400 expansions, nodes 68801, open 27032, relu 11950, input 22450 (alt 16256), top bound 1.0574, 1859s
+34600 expansions, nodes 69201, open 27172, relu 12026, input 22574 (alt 16344), top bound 1.0502, 1871s
+34800 expansions, nodes 69601, open 27317, relu 12092, input 22708 (alt 16443), top bound 1.0501, 1883s
+35000 expansions, nodes 70001, open 27478, relu 12144, input 22856 (alt 16560), top bound 1.0510, 1896s
+35200 expansions, nodes 70401, open 27616, relu 12199, input 23001 (alt 16668), top bound 1.0500, 1907s
+35400 expansions, nodes 70801, open 27765, relu 12273, input 23127 (alt 16760), top bound 1.0499, 1919s
+35600 expansions, nodes 71201, open 27915, relu 12344, input 23256 (alt 16858), top bound 1.0499, 1931s
+35800 expansions, nodes 71601, open 28063, relu 12410, input 23390 (alt 16959), top bound 1.0556, 1943s
+36000 expansions, nodes 72001, open 28205, relu 12476, input 23524 (alt 17053), top bound 1.0497, 1956s
+36200 expansions, nodes 72401, open 28337, relu 12545, input 23655 (alt 17138), top bound 1.0496, 1967s
+36400 expansions, nodes 72801, open 28494, relu 12641, input 23759 (alt 17207), top bound 1.0588, 1980s
+
+[4570] signal 15: Terminated
+in expression starting at /tmp/claude-0/-home-user-VeryDiff/cc51a5da-a2eb-5ea8-9400-a3d82e7f199c/scratchpad/min/proxy_search.jl:36
+gc_sweep_page at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1551
+gc_sweep_pool_page at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1574 [inlined]
+gc_sweep_prescan at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1640
+gc_sweep_wake_all at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1661 [inlined]
+gc_sweep_pool at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1806 [inlined]
+_jl_gc_collect at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:3645
+ijl_gc_collect at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:3893
+maybe_collect at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:926 [inlined]
+jl_gc_pool_alloc_inner at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/gc.c:1319
+jl_gc_alloc_ at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/julia_internal.h:523 [inlined]
+_new_genericmemory_ at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/genericmemory.c:56 [inlined]
+jl_alloc_genericmemory at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/genericmemory.c:99
+GenericMemory at ./boot.jl:516 [inlined]
+Array at ./boot.jl:578 [inlined]
+Array at ./boot.jl:591 [inlined]
+similar at ./abstractarray.jl:833 [inlined]
+similar at ./abstractarray.jl:824 [inlined]
+_similar_for at ./array.jl:668 [inlined]
+_collect at ./array.jl:722 [inlined]
+collect at ./array.jl:716 [inlined]
+local_restore! at /home/user/VeryDiff/agent/julia/VeryDiffAgentKernel/src/Planning.jl:7
+unknown function (ip: 0x7fab7cbc54c0)
+top-level scope at /tmp/claude-0/-home-user-VeryDiff/cc51a5da-a2eb-5ea8-9400-a3d82e7f199c/scratchpad/min/proxy_search.jl:43
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/toplevel.c:934
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/toplevel.c:886
+ijl_toplevel_eval_in at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/toplevel.c:994
+eval at ./boot.jl:430 [inlined]
+include_string at ./loading.jl:2775
+_include at ./loading.jl:2835
+include at ./Base.jl:562
+jfptr_include_46979.1 at /opt/julia-1.11.8/lib/julia/sys.so (unknown line)
+exec_options at ./client.jl:316
+_start at ./client.jl:524
+jfptr__start_73646.1 at /opt/julia-1.11.8/lib/julia/sys.so (unknown line)
+jl_apply at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/julia.h:2157 [inlined]
+true_main at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/jlapi.c:900
+jl_repl_entrypoint at /cache/build/builder-amdci4-7/julialang/julia-release-1-dot-11/src/jlapi.c:1059
+main at julia (unknown line)
+unknown function (ip: 0x7fabbe02a1c9)
+__libc_start_main at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+unknown function (ip: 0x4010b8)
+unknown function (ip: (nil))
+Allocations: 4387893808 (Pool: 4387889208; Big: 4600); GC: 8565
