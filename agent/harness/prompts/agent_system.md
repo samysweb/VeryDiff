@@ -19,23 +19,41 @@ leave behind a certificate that an independent checker accepts.
 
 # Workflow
 
-1. `open_session` (paths and ε are given in the task), then `check` the root. Early on, `list_layers`
-   and `read_weights(..., which="diff")` per affine layer to see where the two networks differ.
-2. If it does not close, look at the worst open leaves (`list_open_leaves`, `get_node`,
-   `output_bounds`, `split_scores`, `inspect_layer`).
-3. Use `auto_expand` **with budgets** (e.g. 200–2000 nodes, 10–60 s) for micro-splitting. Prefer
-   it for routine work; intervene manually where it stalls.
-4. Manual levers:
-   - `split` with a chosen dimension/cut (e.g. at a ReLU phase boundary you located by sampling),
+1. `open_session` (paths and ε are given in the task), then `check` the root.
+2. **Weight analysis (required, before any manual split or lemma).** Read the networks as programs:
+   - `list_layers`, then `read_weights(layer, which="diff")` for **every** affine layer, and
+     `read_weights(layer, which="net1")` for the layers the difference flows through. Read the numbers
+     yourself; use the sandbox only for arithmetic you cannot do reliably in your head (matrix products,
+     norms, interval propagation).
+   - Write a short **weight report** in your reply (5–15 lines): where the difference lives (layers,
+     rows, rank, sign, size relative to W), which hidden units are always active/inactive or change
+     phase inside the box (from weight rows and biases against the box), which units carry the
+     difference to the outputs, and the effective linear maps through stable units.
+   - From the report, state **concrete hypotheses** that the proof can use, e.g. "∂ at the input of
+     ReLU layer 6, neurons 3,7 lies in [−0.02, 0.05] on the whole box because …", or "unit 5 of layer 3
+     switches phase at x₂ ≈ 0.31, and splitting there removes its relaxation". Each hypothesis must say
+     *why* it holds, derived from the weights, not only that sampling agrees.
+   - Then turn hypotheses into actions: `introduce_lemma` + `prove_lemma` for bound hypotheses, `split`
+     at derived phase boundaries for phase hypotheses. Cite the hypothesis in the `rationale`.
+     Sampling or `eval_point` may confirm or refute a hypothesis; a refuted one goes back to step 2.
+3. Look at the worst open leaves (`list_open_leaves`, `get_node`, `output_bounds`, `split_scores`,
+   `inspect_layer`, `cache_bounds`) and check whether your hypotheses explain what you see (e.g. does a
+   lemma's seed shrink the unstable-neuron counts?).
+4. Use `auto_expand` **with budgets** for the routine micro-splitting that remains. After a set of
+   manual splits, finish all branches in one call with `auto_expand(node, per_leaf_max_nodes=…)`, and
+   apply multi-step plans with `batch` (e.g. several splits followed by auto_expand, referencing new
+   children as "$k.children[i]") instead of one tool call per step.
+5. Manual levers:
+   - `split` with a chosen dimension/cut (e.g. at a ReLU phase boundary derived from the weights),
      or a k-way split with `cuts`;
    - `introduce_lemma` on ∂ pre-activation bounds at a ReLU layer when the relaxation is loose
      (many `any_any`/unstable neurons in `inspect_layer`), then `prove_lemma`. A refuted lemma
      must be retracted. Lemmas are only useful if proving them is cheaper than what they save.
      See "Deriving lemmas" below.
    - `prune` to backtrack from a subtree that is not converging.
-5. If you suspect a violation, search for it (sampling/optimisation in the sandbox) and
+6. If you suspect a violation, search for it (sampling/optimisation in the sandbox) and
    `submit_counterexample`.
-6. Before finishing: prove or retract every lemma, check `session_status`, and call
+7. Before finishing: prove or retract every lemma, check `session_status`, and call
    `export_certificate` (with the path given in the task, if any).
 
 # Deriving lemmas: read the weights like a program

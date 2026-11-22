@@ -262,6 +262,23 @@ end
     end
 end
 
+@testset "Batch and per-leaf auto_expand" begin
+    S = open_case("safe_mid")
+    K.SESSION[] = S
+    r = K.METHODS["batch"](Dict("actions" => [
+        Dict("method" => "split", "params" => Dict("node" => 1, "dim" => 1, "cut" => 0.1)),
+        Dict("method" => "split", "params" => Dict("node" => "\$1.children[2]", "dim" => 2, "cuts" => [-0.2, 0.2])),
+        Dict("method" => "auto_expand", "params" => Dict("node" => 1, "per_leaf_max_nodes" => 10_000)),
+        Dict("method" => "open_session", "params" => Dict())]))
+    @test r["n_done"] == 4
+    @test r["results"][3]["leaves_at_start"] == 4 && r["results"][3]["subtree_closed"]
+    @test haskey(r["results"][4], "error")
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, "safe_mid"), "ACCEPT SAFE")
+    bad = K.METHODS["batch"](Dict("actions" => [Dict("method" => "split", "params" => Dict("node" => "\$5.children[1]", "dim" => 1))]))
+    @test haskey(bad["results"][1], "error")
+end
+
 @testset "Extension stubs" begin
     @test_throws K.NotImplementedError K.make_property(Dict("kind" => "top1"))
     @test_throws K.NotImplementedError K.make_property(Dict("kind" => "robustness"))

@@ -50,9 +50,10 @@ def load_instances(path: Path):
 OBJECTIVES = {
     "verdict": "",
     "min-nodes": ("\nObjective: besides a correct verdict, MINIMISE the total number of proof-tree nodes "
-                  "(session_status.total_nodes). auto_expand is capped at 100 nodes per call. Use the weight-space "
-                  "reading workflow (read_weights, inspect_layer, split_scores, the sandbox) to choose splits and "
-                  "lemmas that a generic bisection heuristic would not find, and justify each in its rationale."),
+                  "(session_status.total_nodes). auto_expand is capped at 100 nodes per search (per leaf with "
+                  "per_leaf_max_nodes). Follow the required weight-analysis step: write the weight report and "
+                  "weight-derived hypotheses BEFORE planning splits, and derive splits/lemmas from them rather than "
+                  "from search over VeryDiff runs. Justify each action in its rationale by the hypothesis it uses."),
 }
 MAX_AUTO = {"verdict": None, "min-nodes": "100"}
 
@@ -84,7 +85,7 @@ def task_prompt(inst: dict, cert: Path, timeout: float, objective: str = "verdic
 # ----------------------------------------------------------------------------- agents
 async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turns: int, model: str | None,
                      objective: str = "verdict"):
-    from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage, ToolResultBlock,
+    from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolResultBlock,
                                   ToolUseBlock, UserMessage, query)
     opts = ClaudeAgentOptions(
         system_prompt=PROMPT.read_text(),
@@ -107,7 +108,11 @@ async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turn
             now = time.time()
             if isinstance(msg, AssistantMessage):
                 stats["turns"] += 1
+                if getattr(msg, "model", None):
+                    stats.setdefault("models_seen", set()).add(msg.model)
                 for b in msg.content:
+                    if isinstance(b, TextBlock) and b.text.strip():
+                        log({"t": now, "event": "text", "model": getattr(msg, "model", None), "text": b.text[:8000]})
                     if isinstance(b, ToolUseBlock):
                         pending[b.id] = (b.name, now)
                         stats["tool_calls"] += 1
@@ -121,9 +126,10 @@ async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turn
                              "seconds": round(now - t0, 3), "is_error": b.is_error, "content": text[:4000]})
             elif isinstance(msg, ResultMessage):
                 stats["cost_usd"] = msg.total_cost_usd
+                stats["models"] = list((msg.model_usage or {}).keys()) if isinstance(msg.model_usage, dict) else msg.model_usage
                 stats["result"] = (msg.result or "")[:2000]
                 log({"t": now, "event": "result", "stop_reason": msg.stop_reason, "cost_usd": msg.total_cost_usd,
-                     "usage": msg.usage})
+                     "usage": msg.usage, "model_usage": msg.model_usage, "result_text": (msg.result or "")[:6000]})
 
     try:
         await asyncio.wait_for(consume(), timeout=timeout)
@@ -244,6 +250,7 @@ def main():
             row["agent_wall_s"] = round(time.time() - t0, 1)
             row["llm_actions"] = stats.get("tool_calls")
             row["cost_usd"] = stats.get("cost_usd")
+            row["models"] = ";".join(sorted(set(stats.get("models") or []) | set(stats.get("models_seen") or [])))
             logf.close()
             cs = cert_stats(cert)
             row["agent_verdict"] = cs.get("status", "NONE")
