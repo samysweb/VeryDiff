@@ -1,7 +1,7 @@
 # How to build these proofs: lessons and a playbook
 
 These notes come from building equivalence proofs for ACAS prop_16 (1483 → 1229 propagations) and MNIST
-mnist_68 (118,707 → 118), first by letting Claude drive the kernel through MCP, then by heuristic search, and
+mnist_68 (118,707 → 166; 118 with noise-box contraction, since removed), first by letting Claude drive the kernel through MCP, then by heuristic search, and
 finally by reading the weights. Detailed numbers are in the experiments branch (`agent/experiments/README.md`).
 
 ## What did not work

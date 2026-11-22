@@ -17,15 +17,19 @@ independent checker on the certificate (including start-up).
 | VeryDiff CLI | `Cli.jl`, default heuristic | 118,707 | 59,353 input | 193 s | – (no certificate) |
 | Kernel, plain | `auto_expand` from the root (same tree as the CLI) | 118,708 | 59,353 input | 297 s | not re-measured (22 MB certificate, ACCEPT) |
 | Heuristic search | one-step proxy over input splits (`proxy_search.jl`) | 86,901 | 43,450 input | 815 s (+ one full VeryDiff run for calibration, 174k trial propagations) | 204 s |
-| Weight reasoning | 10 bands on r = h₄₅ (`mnist68_proof.jl`, `LP_RELAX=0`) | 24,796 | 9 band + 12,393 input | 218 s | 192 s |
-| **Weight reasoning + LP rows** | same bands, `lp_relax=true` (`mnist68_proof.jl`) | **118** | **9 band + 54 input** | **38 s** | **51 s** |
+| Weight reasoning | 10 bands on r = h₄₅ (`mnist68_proof.jl`, `LP_RELAX=0`) | 48,010 | 9 band + 24,000 input | 360 s | 286 s |
+| **Weight reasoning + LP rows** | same bands, `lp_relax=true` (`mnist68_proof.jl`) | **166** | **9 band + 78 input** | **43 s** | **50 s** |
+
+The two weight-reasoning rows are for the current code (no noise-box contraction, no hashes; the two runs and the
+two checks ran in parallel). With contraction (earlier code) they were 24,796 and 118 propagations; the
+difference comes from VeryDiff's split heuristic, see the ablation below.
 
 (The Opus-via-MCP runs on this instance reached 118,707 and 118,691 nodes; see the experiments branch.)
-The last variant's search performs 124 checks because the script checks every band root once before handing
-it to `auto_expand`, which checks open roots again; the certificate needs 118.
+The last variant's search performs 172 checks because the script checks every band root once before handing
+it to `auto_expand`, which checks open roots again; the certificate needs 166.
 
-Coarser band layouts with LP rows: cuts {0.65, 0.85, 0.95, 1.0, 1.05} → 134 propagations; {0.85, 0.95, 1.05}
-→ 209; {0.75, 0.9, 1.0} → 268; {0.9} → 1314. Without any band (input splitting + LP rows only) the search had not
+Coarser band layouts with LP rows (earlier code, with contraction): cuts {0.65, 0.85, 0.95, 1.0, 1.05} → 134
+propagations; {0.85, 0.95, 1.05} → 209; {0.75, 0.9, 1.0} → 268; {0.9} → 1314. Without any band (input splitting + LP rows only) the search had not
 finished after 20 minutes.
 
 ## How the short proof works
@@ -73,15 +77,17 @@ three kernel mechanisms (all re-checked by the independent checker):
 
 ### 3. What VeryDiff still has to do
 
+Certificate propagations per band (current code):
+
 | Band of r | Without LP rows | With LP rows (propagations / input splits) |
 |---|---|---|
 | r ≤ 0.55, [0.55, 0.65], [0.65, 0.75], [0.75, 0.85] | 1 each | 1 / 0 each |
-| [0.85, 0.95] | 1857 | 11 / 5 |
-| [0.95, 0.975] | 3827 | 9 / 4 |
-| [0.975, 1.0] | 6905 | 13 / 6 |
-| [1.0, 1.025] | 6789 | 21 / 10 |
-| [1.025, 1.05] | 3449 | 15 / 7 |
-| r ≥ 1.05 | 1965 | 45 / 22 |
+| [0.85, 0.95] | 1863 | 11 / 5 |
+| [0.95, 0.975] | 3889 | 13 / 6 |
+| [0.975, 1.0] | 8643 | 13 / 6 |
+| [1.0, 1.025] | 13,807 | 23 / 11 |
+| [1.025, 1.05] | 12,507 | 23 / 11 |
+| r ≥ 1.05 | 7297 | 79 / 39 |
 
 The upper bands are hard because the true
 margin is small: optimised maxima of diff₄ per band are 0.871, 0.882, 0.895, 0.901, 0.906 and 0.937. Without the
@@ -200,5 +206,5 @@ INST=/path/to/mnist68  OUT=mnist68.json.gz  VERYDIFF_NO_GUROBI=1 julia --project
 VERYDIFF_NO_GUROBI=1 julia --project=. ../../checker/check_certificate.jl mnist68.json.gz $INST/net1.onnx $INST/net2.onnx $INST/spec.vnnlib
 ```
 
-`LP_RELAX=0` reproduces the 24,796-propagation variant. `INST` must contain `net1.onnx`, `net2.onnx`,
+`LP_RELAX=0` reproduces the 48,010-propagation variant. `INST` must contain `net1.onnx`, `net2.onnx`,
 `spec.vnnlib` (the experiments branch has them under `agent/experiments/instances/mnist68/`).

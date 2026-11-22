@@ -16,8 +16,8 @@
 # above (true max 0.87–0.92, margin < 0.13) are discharged by VeryDiff's input splitting under the band
 # constraint. Band [0.95,1.05] was refined to 0.025-wide bands after it did not close within 30k checks.
 # LP_RELAX=1 (default): the final check also uses LP-relaxation rows (per-network triangles, identities
-# d = z1 − z2 / t = a1 − a2, differential chords min(0,d) ≤ t ≤ max(0,d)); this brings the proof from 24,802 to
-# 124 propagations. LP_RELAX=0 reproduces the 24,802-propagation proof.
+# d = z1 − z2 / t = a1 − a2, differential chords min(0,d) ≤ t ≤ max(0,d)); this brings the proof from 48,010 to
+# 166 certificate propagations. LP_RELAX=0 reproduces the 48,010-propagation proof.
 using VeryDiffAgentKernel
 d = get(ENV, "INST", "mnist68")      # directory with net1.onnx, net2.onnx, spec.vnnlib
 S = open_session("$d/net1.onnx", "$d/net2.onnx", "$d/spec.vnnlib", Dict("kind" => "epsilon", "epsilon" => 1.0); fallback=true,

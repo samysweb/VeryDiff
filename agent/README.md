@@ -12,7 +12,7 @@ Scope: **ε-equivalence** (max_i |N1(x)_i − N2(x)_i| ≤ ε on a VNNLIB input 
 
 | Document | Contents |
 |---|---|
-| [`docs/mnist_proof.md`](docs/mnist_proof.md) | the MNIST proof (118,707 → 118 propagations): variants, split counts, times, how it works |
+| [`docs/mnist_proof.md`](docs/mnist_proof.md) | the MNIST proof (118,707 → 166 propagations): variants, split counts, times, how it works |
 | [`docs/proof_strategy.md`](docs/proof_strategy.md) | lessons learned, playbook, which tools to use for what |
 | [`docs/mcp_tools.md`](docs/mcp_tools.md) | reference of all MCP tools (generated from the docstrings) |
 | [`docs/certificate_format.md`](docs/certificate_format.md) | certificate JSON format and what the checker verifies |
