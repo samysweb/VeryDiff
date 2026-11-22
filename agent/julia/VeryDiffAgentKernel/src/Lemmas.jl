@@ -4,10 +4,13 @@ parse_bounds(v, n) = isnothing(v) ? nothing : (length(v) == n ? Float64[decode_f
     kerr("precondition", "bounds vector has length $(length(v)), expected $n"))
 
 function introduce_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vector{Int}, dlo, dhi;
-                          n1_bounds=nothing, n2_bounds=nothing, rationale::AbstractString="")
+                          n1_bounds=nothing, n2_bounds=nothing, rationale::AbstractString="",
+                          _terms=Tuple{String,Int,Float64}[], _rhs::Float64=Inf)
     timed(S) do
         n = getnode(S, node)
-        log_action!(S, "introduce_lemma", Dict("node" => node, "relu_layer" => relu_layer, "neurons" => neurons,
+        log_action!(S, isempty(_terms) ? "introduce_lemma" : "introduce_relational_lemma",
+            Dict("node" => node, "relu_layer" => relu_layer, "neurons" => neurons,
+            "terms" => [[w, j, a] for (w, j, a) in _terms], "rhs" => encode_float(_rhs),
             "dlo" => encode_floats(dlo), "dhi" => encode_floats(dhi), "n1_bounds" => n1_bounds, "n2_bounds" => n2_bounds), rationale)
         require_open_leaf(n)
         relu_layer in S.relu_layers || kerr("precondition", "layer $relu_layer is not a ReLU layer (ReLU layers: $(S.relu_layers))")
@@ -26,7 +29,7 @@ function introduce_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vecto
             n2lo = parse_bounds(n2_bounds[1], k); n2hi = parse_bounds(n2_bounds[2], k)
             all(n2lo .<= n2hi) || kerr("precondition", "n2 lower must be <= upper")
         end
-        stmt = LemmaStatement(relu_layer, copy(neurons), lo, hi, n1lo, n1hi, n2lo, n2hi)
+        stmt = LemmaStatement(relu_layer, copy(neurons), lo, hi, n1lo, n1hi, n2lo, n2hi, _terms, _rhs)
         Lid = S.next_lemma; S.next_lemma += 1
         # Lemma obligation (lemma chaining): same region; it inherits the lemmas already in scope at `n` and
         # n's bounds cache (which depends only on those lemmas). Non-circular: those lemmas were introduced
@@ -75,6 +78,23 @@ function introduce_phase_lemma!(S::Session, node::Int, relu_layer::Int, neurons:
                          n2_bounds=isnothing(b2) ? nothing : [b2[1], b2[2]],
                          rationale=isempty(rationale) ? "phase lemma net1=$net1 net2=$net2" : rationale))
     r["phase"] = Dict("net1" => net1, "net2" => net2)
+    return r
+end
+
+"""Relational lemma: Σ coeff·v ≤ rhs over pre-activations of ReLU layer `relu_layer` on region(node), where each
+term is (v, neuron, coeff) with v ∈ {"d" (net1 − net2), "z1" (net1), "z2" (net2)}. It does not seed the bounds
+cache; it is used as a linear constraint in the LP tightening of checks below it (see LP.jl)."""
+function introduce_relational_lemma!(S::Session, node::Int, relu_layer::Int, terms, rhs; rationale::AbstractString="")
+    ts = Tuple{String,Int,Float64}[(string(t[1]), Int(t[2]), Float64(t[3])) for t in terms]
+    isempty(ts) && kerr("precondition", "need at least one term")
+    all(t -> t[1] in ("d", "z1", "z2"), ts) || kerr("precondition", "term variable must be d|z1|z2")
+    all(t -> isfinite(t[3]), ts) || kerr("precondition", "coefficients must be finite")
+    b = decode_float(rhs); isfinite(b) || kerr("precondition", "rhs must be finite")
+    neurons = sort(unique([t[2] for t in ts]))
+    k = length(neurons)
+    r = Dict{String,Any}(introduce_lemma!(S, node, relu_layer, neurons, fill(-Inf, k), fill(Inf, k);
+                                          rationale=rationale, _terms=ts, _rhs=b))
+    r["relational"] = true
     return r
 end
 
@@ -147,6 +167,7 @@ the same budget. Everything is undone afterwards; the propagations are counted a
 """
 function trial_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vector{Int}; kind::AbstractString="phase",
                       dlo=nothing, dhi=nothing, n1_bounds=nothing, n2_bounds=nothing, net1="any", net2="any",
+                      terms=nothing, rhs=nothing,
                       lemma_max_nodes::Int=2000, main_max_nodes::Int=2000, max_seconds::Float64=120.0,
                       baseline::Bool=true, rationale::AbstractString="")
     timed(S) do
@@ -156,10 +177,11 @@ function trial_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vector{In
         snap = snapshot(S)
         try
             r = kind == "phase" ? introduce_phase_lemma!(S, node, relu_layer, neurons; net1=net1, net2=net2) :
+                kind == "relational" ? introduce_relational_lemma!(S, node, relu_layer, terms, rhs) :
                 kind == "interval" ? introduce_lemma!(S, node, relu_layer, neurons,
                     isnothing(dlo) ? fill(-Inf, length(neurons)) : dlo, isnothing(dhi) ? fill(Inf, length(neurons)) : dhi;
                     n1_bounds=n1_bounds, n2_bounds=n2_bounds) :
-                kerr("precondition", "kind must be phase|interval")
+                kerr("precondition", "kind must be phase|interval|relational")
             c0 = S.n_checks
             p = prove_lemma!(S, r["lemma"]; max_nodes=lemma_max_nodes, max_seconds=max_seconds)
             out["lemma"] = Dict("status" => p["lemma_status"], "proof_nodes" => length(subtree(S, r["lemma_root"])),

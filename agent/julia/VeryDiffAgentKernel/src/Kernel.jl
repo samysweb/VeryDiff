@@ -13,6 +13,7 @@ struct PropResult
     inconsistent::Vector{Int}         # ReLU layers whose cache has lower > upper somewhere
     nonfinite::Bool                   # NaN/Inf in Zout bounds or in any used cache
     layers_done::Vector{Int}
+    stop::Union{Nothing,Int}
 end
 
 """Group the statements of in-scope lemmas by ReLU layer."""
@@ -115,7 +116,7 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]
     nonfinite = any(cache_nonfinite, values(cache.bounds_cache)) ||
         any(isnan, zono_bounds(Zout.∂Z)) || any(isnan, zono_bounds(Zout.Z₁)) || any(isnan, zono_bounds(Zout.Z₂))
-    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done)
+    return PropResult(ps, task, Zin, Zout, cache, sort(inconsistent), nonfinite, done, stop)
 end
 
 layer_by_idx(S::Session, k::Int) = (i = findfirst(l -> l.layer_idx == k, get_layers(S.N));

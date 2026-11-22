@@ -6,6 +6,28 @@ end
 
 obligation_of(S::Session, n::Node) = S.obligations[n.obligation]
 
+"""LP tightening with the in-scope lemmas as constraints (see LP.jl). Returns (ok, evidence, bound)."""
+function lp_fallback(S::Session, n::Node, obl::Obligation, res::PropResult)
+    a = obl.adapter
+    Zo = res.Zout
+    if obl.kind == :main
+        a isa EpsAdapter || return false, nothing, NaN
+        off, m = var_layout(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z]))
+        objs = Tuple{String,AffRow,Float64}[]
+        for i in 1:length(Zo.∂Z.c)
+            r = affrow(Zo.∂Z, i, off, m)
+            push!(objs, ("out:$i:+", r, a.epsilon))
+            push!(objs, ("out:$i:-", AffRow(-r.c, -r.g), a.epsilon))
+        end
+    else
+        st = S.lemmas[obl.lemma].stmt
+        off, m = var_layout(lp_zonos(S, res, n.lemmas_in_scope, [Zo.∂Z, Zo.Z₁, Zo.Z₂]))
+        objs = [("spec:$k", combo_row(Zo, terms, off, m), rhs) for (k, (terms, rhs)) in enumerate(lemma_specs(st))]
+    end
+    ok, ev, worst = lp_establish(S, res, n.lemmas_in_scope, objs, off, m)
+    return ok, (ok ? ev : nothing), worst
+end
+
 """Internal check. Returns (outcome::Symbol, PropResult, heur_info) with outcome ∈
 :closed | :open | :cex | :refuted."""
 function do_check!(S::Session, n::Node)
@@ -22,9 +44,15 @@ function do_check!(S::Session, n::Node)
     guards_ok = isempty(res.inconsistent) && !res.nonfinite && !isnan(db)
     outcome = :open
     reason = ""
+    lp_ev = nothing
+    if !sat && guards_ok && !isempty(n.lemmas_in_scope)
+        sat, lp_ev, db_lp = lp_fallback(S, n, obl, res)
+        sat && (db = obl.kind == :main ? a.epsilon + db_lp : db_lp)
+    end
     if sat && guards_ok
         n.kind = :closed
-        n.evidence = Dict{String,Any}("distance_bound" => db, "check" => check_tag(a))
+        n.evidence = Dict{String,Any}("distance_bound" => db, "check" => isnothing(lp_ev) ? check_tag(a) : check_tag(a) * "+lp_dual")
+        isnothing(lp_ev) || (n.evidence["lp"] = lp_ev)
         outcome = :closed
     else
         if sat && !guards_ok

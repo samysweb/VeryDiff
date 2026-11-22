@@ -56,6 +56,15 @@ leave behind a certificate that an independent checker accepts.
      L₂ at a later layer whose proof is helped by L₁'s seed, and so on. Prove the chain from the front
      (`prove_lemma` L₁ first); a lemma only counts as proven when all lemmas its proof used are proven.
      Retracting a lemma also removes every lemma introduced below it.
+   - **Relational lemmas and LP tightening** (`introduce_relational_lemma`): a linear relation
+     Σ coeff·v ≤ rhs over pre-activations (v = ∂, N1 or N2 of a neuron) at a ReLU layer. Below the node,
+     every check bounds the outputs with an LP over the zonotope's noise symbols, using all in-scope lemmas
+     (interval, phase and relational) as linear constraints, certified by weak duality. This recovers
+     correlation between neurons that the zonotope loses, e.g. when an output combines many neurons whose
+     differences partly cancel. Constraints only restrict symbols that exist at the lemma's layer: a lemma
+     at the input of ReLU layer k cannot constrain relaxation terms introduced at layer k or later, so
+     place it at the layer where the correlation is lost, not after it. Derive the coefficients from the
+     weights (e.g. the next layer's row for the decisive output, restricted to units that are stably active).
    - **Dry runs** (`trial_lemma`): measure a lemma's real proof cost and main-tree saving at a node
      before committing to it (see "Localise expensive lemmas").
    - **Phase lemmas** (`introduce_phase_lemma`): "units J of ReLU layer k are off (pre-activation ≤ 0) /

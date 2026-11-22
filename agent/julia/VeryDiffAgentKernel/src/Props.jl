@@ -40,7 +40,11 @@ struct LemmaStatement
     n1hi::Union{Nothing,Vector{Float64}}
     n2lo::Union{Nothing,Vector{Float64}}
     n2hi::Union{Nothing,Vector{Float64}}
+    terms::Vector{Tuple{String,Int,Float64}}   # relational part: Σ coeff·v ≤ rhs, v ∈ {d, z1, z2}[neuron]
+    rhs::Float64
 end
+LemmaStatement(k, neurons, dlo, dhi, n1lo, n1hi, n2lo, n2hi) =
+    LemmaStatement(k, neurons, dlo, dhi, n1lo, n1hi, n2lo, n2hi, Tuple{String,Int,Float64}[], Inf)
 
 struct LemmaBoundsAdapter <: PropertyAdapter
     stmt::LemmaStatement
@@ -58,28 +62,28 @@ end
 
 function adapter_check(a::LemmaBoundsAdapter, N1, N2, Zin, Zk, status)
     s = a.stmt
-    ∂b = zono_bounds(Zk.∂Z)
-    ex = bound_excess(∂b, s.neurons, s.dlo, s.dhi)
-    if !isnothing(s.n1lo)
-        ex = max(ex, bound_excess(zono_bounds(Zk.Z₁), s.neurons, s.n1lo, s.n1hi))
-    end
-    if !isnothing(s.n2lo)
-        ex = max(ex, bound_excess(zono_bounds(Zk.Z₂), s.neurons, s.n2lo, s.n2hi))
+    off, m = var_layout([Zk.∂Z, Zk.Z₁, Zk.Z₂])
+    ex = -Inf; worst_row = nothing
+    for (terms, rhs) in lemma_specs(s)
+        row = combo_row(Zk, terms, off, m)
+        e = row.c + sum(abs, row.g) - rhs
+        if e > ex
+            ex = e; worst_row = row
+        end
     end
     if ex <= 0.0
         return true, nothing, nothing, nothing, ex
     end
-    # Candidate (unverified) refutation points: the centre and the two input corners
-    # that maximise the worst ∂ row. The kernel evaluates them concretely.
+    # Candidate (unverified) refutation points: the centre and the two input corners that push the worst claim.
     cands = Vector{Vector{Float64}}([copy(Zin.Z₁.c)])
-    worst = s.neurons[argmax([max(s.dlo[k] - ∂b[r, 1], ∂b[r, 2] - s.dhi[k]) for (k, r) in enumerate(s.neurons)])]
-    if !isempty(Zin.Z₁.Gs) && !isempty(Zk.∂Z.Gs)
-        w = sign.(Zk.∂Z.Gs[1][worst, :])
+    if !isnothing(worst_row) && !isempty(Zin.Z₁.Gs) && haskey(off, 1)
+        G = Zin.Z₁.Gs[1]; o = off[1]
+        w = sign.(worst_row.g[o+1:o+size(G, 2)])
         for c in (-1.0, 1.0)
-            push!(cands, Zin.Z₁.Gs[1] * (c .* w) .+ Zin.Z₁.c)
+            push!(cands, G * (c .* w) .+ Zin.Z₁.c)
         end
     end
-    return false, nothing, (cands, worst), nothing, ex
+    return false, nothing, (cands, nothing), nothing, ex
 end
 
 """Row-restricted copy of `epsilon_split_heuristic`: only the lemma rows are weighted."""
@@ -110,6 +114,10 @@ function violates(a::LemmaBoundsAdapter, h1::AbstractVector, h2::AbstractVector)
     end
     if !isnothing(s.n2lo)
         (any(h2[s.neurons] .< s.n2lo) || any(h2[s.neurons] .> s.n2hi)) && return true
+    end
+    if !isempty(s.terms)
+        v = sum(a * (w == "d" ? h1[j] - h2[j] : w == "z1" ? h1[j] : h2[j]) for (w, j, a) in s.terms)
+        v > s.rhs && return true
     end
     return false
 end

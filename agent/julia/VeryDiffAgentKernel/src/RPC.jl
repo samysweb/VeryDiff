@@ -57,7 +57,10 @@ const METHODS = Dict{String,Function}(
                            rationale=opt(p, "rationale", "")),
     "introduce_phase_lemma" => p -> introduce_phase_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]), ivec(p["neurons"]);
                            net1=opt(p, "net1", "any"), net2=opt(p, "net2", "any"), rationale=opt(p, "rationale", "")),
-    "trial_lemma" => p -> trial_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]), ivec(p["neurons"]);
+    "introduce_relational_lemma" => p -> introduce_relational_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]),
+                           p["terms"], p["rhs"]; rationale=opt(p, "rationale", "")),
+    "trial_lemma" => p -> trial_lemma!(current(), Int(p["node"]), Int(p["relu_layer"]), ivec(opt(p, "neurons", Int[]));
+                           terms=get(p, "terms", nothing), rhs=get(p, "rhs", nothing),
                            kind=opt(p, "kind", "phase"), dlo=get(p, "dlo", nothing), dhi=get(p, "dhi", nothing),
                            n1_bounds=get(p, "n1_bounds", nothing), n2_bounds=get(p, "n2_bounds", nothing),
                            net1=opt(p, "net1", "any"), net2=opt(p, "net2", "any"),
@@ -104,7 +107,7 @@ sanitize(x::Tuple) = Any[sanitize(v) for v in x]
 sanitize(x) = x
 
 # Actions allowed inside `batch` (no session/certificate/export side effects).
-const BATCHABLE = Set(["check", "split", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
+const BATCHABLE = Set(["check", "split", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "introduce_relational_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
     "refute_lemma", "prune", "submit_counterexample", "session_status", "list_open_leaves", "get_node",
     "output_bounds", "split_scores", "cache_bounds", "inspect_layer", "read_weights", "eval_point"])
 
