@@ -22,7 +22,9 @@ function cert_nodes(S::Session)
         elseif n.kind == :assume
             push!(out, [id, n.parent, n.side, "a", Dict("l" => n.lemma, "p" => p), r])
         elseif n.kind == :closed
-            push!(out, [id, n.parent, n.side, "c", Dict("db" => encode_float(n.distance_bound)), r])
+            pl = Dict{String,Any}("db" => encode_float(n.distance_bound))
+            !isnothing(n.evidence) && haskey(n.evidence, "lp") && (pl["lp"] = n.evidence["lp"])
+            push!(out, [id, n.parent, n.side, "c", pl, r])
         else
             push!(out, [id, n.parent, n.side, "o", Dict(), r])
         end
@@ -38,6 +40,7 @@ function cert_lemma(S::Session, lem::Lemma)
         "status" => lemma_status(S, lem.id))
     isnothing(s.n1lo) || (d["n1"] = [encode_floats(s.n1lo), encode_floats(s.n1hi)])
     isnothing(s.n2lo) || (d["n2"] = [encode_floats(s.n2lo), encode_floats(s.n2hi)])
+    isempty(s.terms) || (d["terms"] = [[w, j, a] for (w, j, a) in s.terms]; d["rhs"] = s.rhs)
     isnothing(lem.refutation) || (d["refutation"] = lem.refutation)
     return d
 end

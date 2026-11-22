@@ -1,5 +1,6 @@
 using Test
 using JSON
+using Random
 using VeryDiff
 using VeryDiffAgentKernel
 const K = VeryDiffAgentKernel
@@ -295,6 +296,57 @@ end
     auto_expand!(S, r["child"]; max_nodes=5000)
     @test length(K.subtree(S, r["lemma_root"])) == t["lemma"]["proof_nodes"]
     @test length(K.subtree(S, r["child"])) == t["with_lemma"]["subtree_nodes"]
+end
+
+@testset "LP tightening with lemma constraints (dual-certified)" begin
+    local S, lpleaves
+    found = false
+    for seed in 1:12                          # the LP effect depends on the sampled bounds; search a few seeds
+        Random.seed!(seed)
+        S = open_case("safe_hard")
+        k = S.relu_layers[end]
+        X = [S.root_box.lo .+ rand(length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo) for _ in 1:3000]
+        D = reduce(hcat, [(h = K.hidden_at(S, x, k); h[1] .- h[2]) for x in X])
+        lo = vec(minimum(D, dims=2)); hi = vec(maximum(D, dims=2)); pad = 0.25 .* (hi .- lo) .+ 1e-3
+        r = introduce_lemma!(S, 1, k, collect(1:size(D, 1)), lo .- pad, hi .+ pad)
+        p = prove_lemma!(S, r["lemma"]; max_nodes=50_000, max_seconds=600.0)
+        p["lemma_status"] == "proven" || continue
+        auto_expand!(S, r["child"]; max_nodes=100_000, max_seconds=600.0)
+        session_verdict(S) == "SAFE" || continue
+        lpleaves = [e for e in K.certificate(S)["nodes"] if e[4] == "c" && haskey(e[5], "lp")]
+        isempty(lpleaves) && continue
+        found = true
+        @info "LP-closed leaves found" seed n = length(lpleaves)
+        break
+    end
+    @test found
+    @test startswith(check_cert(S, "safe_hard"), "ACCEPT SAFE")
+    target = lpleaves[1][1]
+    neg = check_cert(S, "safe_hard"; mutate=c -> for e in c["nodes"]
+        e[1] == target && (e[5]["lp"]["rows"][1]["lam"][1] = -1.0)
+    end)
+    @test startswith(neg, "REJECT")
+    short = check_cert(S, "safe_hard"; mutate=c -> for e in c["nodes"]
+        e[1] == target && pop!(e[5]["lp"]["rows"][1]["lam"])
+    end)
+    @test startswith(short, "REJECT")
+    # relational lemma: introduce, prove (trivially, from the root bound of the combination), refute a false one
+    S2 = open_case("safe_mid")
+    k2 = S2.relu_layers[1]
+    res = K.inspect_propagation(S2, S2.nodes[1]; stop=k2)
+    off, m = K.var_layout([res.Zout.∂Z, res.Zout.Z₁, res.Zout.Z₂])
+    row = K.combo_row(res.Zout, [("d", 1, 1.0), ("z1", 2, -0.5)], off, m)
+    rr = introduce_relational_lemma!(S2, 1, k2, [("d", 1, 1.0), ("z1", 2, -0.5)], row.c + sum(abs, row.g) + 1e-6)
+    @test prove_lemma!(S2, rr["lemma"]; max_nodes=10)["lemma_status"] == "proven"
+    auto_expand!(S2, rr["child"]; max_nodes=100_000)
+    @test session_verdict(S2) == "SAFE"
+    @test startswith(check_cert(S2, "safe_mid"), "ACCEPT SAFE")
+    x = (S2.root_box.lo .+ S2.root_box.hi) ./ 2
+    h1, h2 = K.hidden_at(S2, x, k2)
+    v = (h1[1] - h2[1]) - 0.5 * h1[2]
+    S3 = open_case("safe_mid")
+    rf = introduce_relational_lemma!(S3, 1, k2, [("d", 1, 1.0), ("z1", 2, -0.5)], v - 1e-3)
+    @test refute_lemma!(S3, rf["lemma"], x)["refuted"] == true
 end
 
 @testset "Cache hygiene: retract restores lemma-free bounds" begin

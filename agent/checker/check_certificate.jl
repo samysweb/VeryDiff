@@ -82,6 +82,84 @@ struct Seed
     neurons::Vector{Int}; dlo::Vector{Float64}; dhi::Vector{Float64}
     n1::Union{Nothing,Tuple{Vector{Float64},Vector{Float64}}}
     n2::Union{Nothing,Tuple{Vector{Float64},Vector{Float64}}}
+    terms::Vector{Tuple{String,Int,Float64}}
+    rhs::Float64
+end
+
+# ---------------------------------------------------------------- LP evidence (re-implemented; no LP solver)
+"""Linear claims Σ coeff·v ≤ rhs of a lemma, in the kernel's documented order."""
+function specs(s::Seed)
+    out = Tuple{Vector{Tuple{String,Int,Float64}},Float64}[]
+    for (k, j) in enumerate(s.neurons)
+        isfinite(s.dhi[k]) && push!(out, ([("d", j, 1.0)], s.dhi[k]))
+        isfinite(s.dlo[k]) && push!(out, ([("d", j, -1.0)], -s.dlo[k]))
+        if !isnothing(s.n1)
+            isfinite(s.n1[2][k]) && push!(out, ([("z1", j, 1.0)], s.n1[2][k]))
+            isfinite(s.n1[1][k]) && push!(out, ([("z1", j, -1.0)], -s.n1[1][k]))
+        end
+        if !isnothing(s.n2)
+            isfinite(s.n2[2][k]) && push!(out, ([("z2", j, 1.0)], s.n2[2][k]))
+            isfinite(s.n2[1][k]) && push!(out, ([("z2", j, -1.0)], -s.n2[1][k]))
+        end
+    end
+    isempty(s.terms) || push!(out, (s.terms, s.rhs))
+    return out
+end
+
+function layout(Zs)
+    sizes = Dict{Int,Int}()
+    for Z in Zs, (bi, id) in enumerate(collect(Z.generator_ids))
+        sizes[id] = max(get(sizes, id, 0), size(Z.Gs[bi], 2))
+    end
+    off = Dict{Int,Int}(); o = 0
+    for id in sort(collect(keys(sizes))); off[id] = o; o += sizes[id]; end
+    return off, o
+end
+function row(Z, r, off, m)
+    g = zeros(m)
+    for (bi, id) in enumerate(collect(Z.generator_ids)), c in 1:size(Z.Gs[bi], 2)
+        g[off[id]+c] += Z.Gs[bi][r, c]
+    end
+    return Z.c[r], g
+end
+pz(DZ, w) = w == "d" ? DZ.∂Z : w == "z1" ? DZ.Z₁ : w == "z2" ? DZ.Z₂ : reject("bad term variable $w")
+function combo(DZ, terms, off, m)
+    c = 0.0; g = zeros(m)
+    for (w, j, a) in terms
+        cc, gg = row(pz(DZ, w), j, off, m); c += a * cc; g .+= a .* gg
+    end
+    return c, g
+end
+
+"""Verify LP dual evidence: every listed objective is bounded by its threshold via c + ‖g − Aᵀλ‖₁ + λ·r with λ ≥ 0.
+`objs` maps label => (c, g, threshold) for all objectives that must hold; objectives without evidence must hold
+by the plain zonotope bound."""
+function verify_lp(ev, objs, zk_of, lemmas_by_id, scope, off, m)
+    used = Int.(ev["lemmas"])
+    issubset(used, scope) || reject("LP evidence uses lemmas not in scope")
+    issorted(used) && allunique(used) || reject("LP evidence lemma list not sorted/unique")
+    rows = Vector{Float64}[]; r = Float64[]
+    for L in used
+        Zk = zk_of(lemmas_by_id[L].layer)
+        isnothing(Zk) && reject("LP evidence uses lemma $L whose layer is not available")
+        for (terms, rhs) in specs(lemmas_by_id[L].seed)
+            c, g = combo(Zk, terms, off, m); push!(rows, g); push!(r, rhs - c)
+        end
+    end
+    A = isempty(rows) ? zeros(0, m) : permutedims(reduce(hcat, rows))
+    given = Dict(String(e["o"]) => Float64.(e["lam"]) for e in ev["rows"])
+    for (label, (c, g, t)) in objs
+        if haskey(given, label)
+            λ = given[label]
+            length(λ) == size(A, 1) || reject("LP evidence for $label has wrong length")
+            all(>=(0.0), λ) && all(isfinite, λ) || reject("LP evidence for $label has negative/non-finite multipliers")
+            b = c + sum(abs, g .- A' * λ) + (isempty(λ) ? 0.0 : sum(λ .* r))
+        else
+            b = c + sum(abs, g)
+        end
+        b <= t || return false
+    end
+    return true
 end
 
 function seed!(bc::BoundsCache, n::Int, seeds::Vector{Seed})
@@ -141,7 +219,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
     for Z in (Zout.∂Z, Zout.Z₁, Zout.Z₂)
         any(isnan, zono_bounds(Z)) && (ok = false)
     end
-    return P.zono_storage.zonotopes[1].zonotope, Zout, tb, ok
+    return P.zono_storage.zonotopes[1].zonotope, Zout, tb, ok, P
 end
 
 # ---------------------------------------------------------------- the check
@@ -228,7 +306,8 @@ function check(cert_path, net1, net2, specf; verbose=false)
         k = length(l["neurons"])
         n1 = haskey(l, "n1") ? (dec.(l["n1"][1]), dec.(l["n1"][2])) : nothing
         n2 = haskey(l, "n2") ? (dec.(l["n2"][1]), dec.(l["n2"][2])) : nothing
-        s = Seed(Int.(l["neurons"]), dec.(l["dlo"]), dec.(l["dhi"]), n1, n2)
+        terms = haskey(l, "terms") ? [(String(t[1]), Int(t[2]), Float64(t[3])) for t in l["terms"]] : Tuple{String,Int,Float64}[]
+        s = Seed(Int.(l["neurons"]), dec.(l["dlo"]), dec.(l["dhi"]), n1, n2, terms, haskey(l, "rhs") ? Float64(l["rhs"]) : Inf)
         need(length(s.dlo) == k && length(s.dhi) == k, "lemma $id malformed")
         need(Int(l["relu_layer"]) in relu, "lemma $id on a non-ReLU layer")
         lemmas[id] = (id=id, obligation=Int(l["obligation"]), scope=Int(l["scope_node"]), layer=Int(l["relu_layer"]), seed=s)
@@ -288,8 +367,34 @@ function check(cert_path, net1, net2, specf; verbose=false)
                 push!(get!(seeds, lemmas[L].layer, Seed[]), lemmas[L].seed)
             end
             if n.kind == "c"
-                Zin, Z, _, ok = propagate(N, lo, hi, active, cache, seeds, adapter_stop)
-                if o.kind == "main"
+                Zin, Z, _, ok, P = propagate(N, lo, hi, active, cache, seeds, adapter_stop)
+                ev = get(n.p, "lp", nothing)
+                zk_of = k -> begin
+                    !isnothing(adapter_stop) && k > adapter_stop && return nothing
+                    !isnothing(adapter_stop) && k == adapter_stop && return Z
+                    L = only(l for l in get_layers(N) if l.layer_idx == k)
+                    zz = P.zono_storage.zonotopes[get_inputs(L)[1]]
+                    isnothing(zz) ? nothing : zz.zonotope
+                end
+                if !isnothing(ev)
+                    Zs = Any[Z.∂Z, Z.Z₁, Z.Z₂]
+                    for L in Int.(ev["lemmas"])
+                        Zk = zk_of(lemmas[L].layer); isnothing(Zk) || append!(Zs, [Zk.∂Z, Zk.Z₁, Zk.Z₂])
+                    end
+                    off, m = layout(Zs)
+                    objs = Dict{String,Tuple{Float64,Vector{Float64},Float64}}()
+                    if o.kind == "main"
+                        for i in 1:length(Z.∂Z.c)
+                            c, g = row(Z.∂Z, i, off, m)
+                            objs["out:$i:+"] = (c, g, eps); objs["out:$i:-"] = (-c, -g, eps)
+                        end
+                    else
+                        for (k, (terms, rhs)) in enumerate(specs(lem_self.seed))
+                            c, g = combo(Z, terms, off, m); objs["spec:$k"] = (c, g, rhs)
+                        end
+                    end
+                    verified_leaf[id] = ok && verify_lp(ev, objs, zk_of, lemmas, scope, off, m)
+                elseif o.kind == "main"
                     sat, _, _, _, db = epsprop(X1, X2, Zin, Z, nothing)
                     verified_leaf[id] = sat && ok && !isnan(db)
                 else
@@ -298,6 +403,10 @@ function check(cert_path, net1, net2, specf; verbose=false)
                     good = all(b[s.neurons, 1] .>= s.dlo) && all(b[s.neurons, 2] .<= s.dhi)
                     if !isnothing(s.n1); b1 = zono_bounds(Z.Z₁); good &= all(b1[s.neurons, 1] .>= s.n1[1]) && all(b1[s.neurons, 2] .<= s.n1[2]); end
                     if !isnothing(s.n2); b2 = zono_bounds(Z.Z₂); good &= all(b2[s.neurons, 1] .>= s.n2[1]) && all(b2[s.neurons, 2] .<= s.n2[2]); end
+                    if !isempty(s.terms)
+                        off, m = layout([Z.∂Z, Z.Z₁, Z.Z₂]); c, g = combo(Z, s.terms, off, m)
+                        good &= c + sum(abs, g) <= s.rhs
+                    end
                     verified_leaf[id] = good && ok
                 end
                 verbose && println(stderr, "leaf $id: ", verified_leaf[id])

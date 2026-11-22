@@ -191,19 +191,35 @@ def introduce_phase_lemma(node: int, relu_layer: int, neurons: list[int], net1: 
 
 
 @mcp.tool()
-def trial_lemma(node: int, relu_layer: int, neurons: list[int], kind: str = "phase", net1: str = "any", net2: str = "any",
+def introduce_relational_lemma(node: int, relu_layer: int, terms: list[list], rhs: float | str, rationale: str = "") -> Any:
+    """Assume a linear relation Σ coeff·v ≤ rhs over pre-activations of ReLU layer `relu_layer` on region(node).
+    terms = [[v, neuron, coeff], ...] with v ∈ "d" (net1−net2), "z1" (net1), "z2" (net2), neurons 1-based.
+    It does not change VeryDiff's relaxation; instead every check below the node bounds the outputs by an LP over
+    the zonotope's noise symbols with all in-scope lemmas as linear constraints (interval/phase lemmas are used the
+    same way). The LP bound is certified by weak duality and replayed by the checker. Prove it with prove_lemma."""
+    if not isinstance(terms, list) or not terms:
+        return {"error": "precondition", "message": "terms must be a non-empty list of [v, neuron, coeff]"}
+    return _call("introduce_relational_lemma", node=int(node), relu_layer=int(relu_layer), terms=terms, rhs=rhs,
+                 rationale=_rat(rationale))
+
+
+@mcp.tool()
+def trial_lemma(node: int, relu_layer: int, neurons: list[int] | None = None, kind: str = "phase", net1: str = "any",
+                net2: str = "any", terms: list[list] | None = None, rhs: float | str | None = None,
                 dlo: list[float | str] | None = None, dhi: list[float | str] | None = None,
                 n1_bounds: list[list[float | str]] | None = None, n2_bounds: list[list[float | str]] | None = None,
                 lemma_max_nodes: int = 2000, main_max_nodes: int = 2000, max_seconds: float = 120.0,
                 baseline: bool = True, rationale: str = "") -> Any:
     """DRY RUN (changes nothing, not counted as proof cost): introduce a phase lemma (kind="phase", net1/net2) or an
-    interval lemma (kind="interval", dlo/dhi/n1_bounds/n2_bounds) at open leaf `node`, prove it within
+    interval lemma (kind="interval", dlo/dhi/n1_bounds/n2_bounds) or a relational lemma (kind="relational",
+    terms/rhs) at open leaf `node`, prove it within
     lemma_max_nodes, auto_expand the assume child within main_max_nodes, and (baseline=True) auto_expand `node`
     without the lemma with the same budget. Returns exact nodes/checks for each part and net_saving_nodes. Use it to
     decide WHERE a lemma pays off before introducing it for real."""
-    if kind not in ("phase", "interval"):
-        return {"error": "precondition", "message": "kind must be phase|interval"}
-    return _call("trial_lemma", node=int(node), relu_layer=int(relu_layer), neurons=[int(n) for n in neurons], kind=kind,
+    if kind not in ("phase", "interval", "relational"):
+        return {"error": "precondition", "message": "kind must be phase|interval|relational"}
+    return _call("trial_lemma", node=int(node), relu_layer=int(relu_layer), neurons=[int(n) for n in (neurons or [])],
+                 kind=kind, terms=terms, rhs=rhs,
                  net1=net1, net2=net2, dlo=dlo, dhi=dhi, n1_bounds=n1_bounds, n2_bounds=n2_bounds,
                  lemma_max_nodes=int(lemma_max_nodes), main_max_nodes=int(main_max_nodes),
                  max_seconds=float(max_seconds), baseline=bool(baseline), rationale=_rat(rationale))
