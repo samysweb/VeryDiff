@@ -1,6 +1,7 @@
 using VeryDiff
 import VeryDiff: VerificationTask, PropState, prepare_prop_state!, propagate!, GeminiNetwork, zono_bounds
-import VeryDiff.Transformers: dual_one_row, collect_bound_rows!, BoundRow
+using VeryDiff.Definitions: Zonotope, DiffZonotope, SortedVector
+import VeryDiff.Transformers: dual_one_row, collect_bound_rows!, BoundRow, infeasible_rows
 using VNNLib.OnnxParser: ONNXRelu
 using Test
 using Random
@@ -25,6 +26,32 @@ using Random
             @test v >= best - 1e-9 * (1 + abs(best))
             @test v <= sum(abs, g) + 1e-12
         end
+    end
+
+    @testset "infeasible_rows: only empty sets are reported, empty pairs are found" begin
+        # rows on a one-dimensional "zonotope" x = c + G·ε (3 noise symbols): Σ coef·x_j ≤ rhs
+        c = [0.1, -0.2]; G = [1.0 0.5 -0.3; 0.2 -1.0 0.4]
+        mk() = Zonotope([copy(G)], copy(c), nothing, SortedVector([1]), nothing)
+        Z = DiffZonotope(mk(), mk(), mk())
+        ε = [2 .* rand(3) .- 1 for _ in 1:20000]
+        val(j, e) = c[j] + sum(G[j, :] .* e)
+        reported = 0
+        for _ in 1:300
+            rows = [BoundRow(Z, [(rand(1:3), rand(1:2), rand([-1.0, 1.0]))], randn()) for _ in 1:2]
+            pair = infeasible_rows(rows)
+            isnothing(pair) && continue
+            reported += 1
+            # no sampled point satisfies both rows
+            sat(r, e) = sum(a * val(j, e) for (_, j, a) in r.terms) <= r.rhs
+            @test !any(e -> sat(rows[1], e) && sat(rows[2], e), ε)
+        end
+        @test reported > 0
+        # x₁ ≤ 0 and x₁ ≥ 0.5: an empty slab is found as a pair
+        @test !isnothing(infeasible_rows([BoundRow(Z, [(1, 1, 1.0)], 0.0), BoundRow(Z, [(1, 1, -1.0)], -0.5)]))
+        # a slab that touches the box is not reported
+        @test isnothing(infeasible_rows([BoundRow(Z, [(1, 1, 1.0)], 0.3), BoundRow(Z, [(1, 1, -1.0)], -0.29)]))
+        # two different units: x₁ ≥ 1.5 and x₂ ≥ 0 cannot hold together (x₁ ≥ 1.5 needs ε₂ near 1, then x₂ < 0)
+        @test !isnothing(infeasible_rows([BoundRow(Z, [(1, 1, -1.0)], -1.75), BoundRow(Z, [(1, 2, -1.0)], 0.0)]))
     end
 
     @testset "Sampled points stay inside the bounds of a child box" begin

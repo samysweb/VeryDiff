@@ -153,6 +153,37 @@ function dual_tighten!(bc::BoundsCache, Zin::DiffZonotope, rows::Vector{BoundRow
 end
 
 """
+    infeasible_rows(rows; rtol=1e-9)
+
+Test whether the rows have no common solution in the noise box, one row and pairs of rows at a time.
+One row a·ε ≤ β: infeasible if min over the box of a·ε = −‖a‖₁ is > β.
+Two rows: infeasible if min a₁·ε over {box, a₂·ε ≤ β₂} is > β₁. By weak duality, for each λ ≥ 0
+    min a₁·ε ≥ −(‖−a₁ − λa₂‖₁ + λβ₂),
+so the test is −dual_one_row(−a₁, a₂, β₂) > β₁ (a Farkas certificate with two multipliers 1 and λ). Both tests
+need a margin of rtol·(1 + |β₁| + ‖a₁‖₁), so that rounding cannot make a feasible set look empty.
+Return nothing, or (i, j) with the indices of the rows (j = i for a single row).
+"""
+function infeasible_rows(rows::Vector{BoundRow}; rtol::Float64=1e-9)
+    isempty(rows) && return nothing
+    Zs = Zonotope[]
+    for r in rows
+        append!(Zs, (r.Z.Z₁, r.Z.Z₂, r.Z.∂Z))
+    end
+    offset, m = noise_layout(Zs)
+    vecs = [row_vector(r, offset, m) for r in rows]
+    margin(a, β) = rtol * (1 + abs(β) + sum(abs, a))
+    for (i, (a, β)) in enumerate(vecs)
+        isfinite(β) || continue
+        -sum(abs, a) > β + margin(a, β) && return (i, i)
+    end
+    for (i, (a₁, β₁)) in enumerate(vecs), (j, (a₂, β₂)) in enumerate(vecs)
+        (i != j && isfinite(β₁) && isfinite(β₂)) || continue
+        -dual_one_row(.-a₁, a₂, β₂) > β₁ + margin(a₁, β₁) && return (i, j)
+    end
+    return nothing
+end
+
+"""
     collect_bound_rows!(rows, bc, Zin, K, rtol)
 
 Append to `rows` the cached bounds of the ReLU layer with input `Zin` that are tighter than the zonotope's own
