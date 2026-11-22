@@ -47,7 +47,17 @@ def load_instances(path: Path):
     return out
 
 
-def server_config(work: Path, cert: Path) -> dict:
+OBJECTIVES = {
+    "verdict": "",
+    "min-nodes": ("\nObjective: besides a correct verdict, MINIMISE the total number of proof-tree nodes "
+                  "(session_status.total_nodes). auto_expand is capped at 100 nodes per call. Use the weight-space "
+                  "reading workflow (read_weights, inspect_layer, split_scores, the sandbox) to choose splits and "
+                  "lemmas that a generic bisection heuristic would not find, and justify each in its rationale."),
+}
+MAX_AUTO = {"verdict": None, "min-nodes": "100"}
+
+
+def server_config(work: Path, cert: Path, objective: str = "verdict") -> dict:
     env = {
         "PYTHONPATH": str(AGENT / "server"),
         "VDA_WORKDIR": str(work),
@@ -56,26 +66,30 @@ def server_config(work: Path, cert: Path) -> dict:
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", ""),
     }
+    if MAX_AUTO.get(objective):
+        env["VDA_MAX_AUTO_NODES"] = MAX_AUTO[objective]
     for k in ("VDA_SANDBOX", "VDA_SANDBOX_IMAGE", "VDA_SYSIMAGE", "VDA_JULIA", "JULIA_DEPOT_PATH"):
         if k in os.environ:
             env[k] = os.environ[k]
     return {"type": "stdio", "command": sys.executable, "args": ["-m", "verydiff_mcp.server"], "env": env}
 
 
-def task_prompt(inst: dict, cert: Path, timeout: float) -> str:
+def task_prompt(inst: dict, cert: Path, timeout: float, objective: str = "verdict") -> str:
     return (f"Decide ε-equivalence for:\n  net1 = {inst['net1']}\n  net2 = {inst['net2']}\n"
             f"  spec = {inst['spec']}\n  epsilon = {inst['epsilon']}\n"
             f"Wall-clock budget: {int(timeout)} s. When done (or near the budget), call "
-            f"export_certificate with path=\"{cert}\".")
+            f"export_certificate with path=\"{cert}\"." + OBJECTIVES[objective])
 
 
 # ----------------------------------------------------------------------------- agents
-async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turns: int, model: str | None):
+async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turns: int, model: str | None,
+                     objective: str = "verdict"):
     from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage, ToolResultBlock,
                                   ToolUseBlock, UserMessage, query)
     opts = ClaudeAgentOptions(
         system_prompt=PROMPT.read_text(),
-        mcp_servers={"verydiff": server_config(work, cert)},
+        mcp_servers={"verydiff": server_config(work, cert, objective)},
+        env={"MCP_TOOL_TIMEOUT": str(int((timeout + 120) * 1000)), "MCP_TIMEOUT": "600000"},
         strict_mcp_config=True,
         tools=[],                                   # no built-in tools: only the verydiff MCP tools
         allowed_tools=["mcp__verydiff"],
@@ -89,7 +103,7 @@ async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turn
     stats = {"tool_calls": 0, "turns": 0, "cost_usd": None, "result": None}
 
     async def consume():
-        async for msg in query(prompt=task_prompt(inst, cert, timeout), options=opts):
+        async for msg in query(prompt=task_prompt(inst, cert, timeout, objective), options=opts):
             now = time.time()
             if isinstance(msg, AssistantMessage):
                 stats["turns"] += 1
@@ -118,10 +132,10 @@ async def run_claude(inst, work: Path, cert: Path, log, timeout: float, max_turn
     return stats
 
 
-async def run_scripted(inst, work: Path, cert: Path, log, timeout: float, **_):
+async def run_scripted(inst, work: Path, cert: Path, log, timeout: float, objective: str = "verdict", **_):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
-    cfg = server_config(work, cert)
+    cfg = server_config(work, cert, objective)
     params = StdioServerParameters(command=cfg["command"], args=cfg["args"], env=cfg["env"])
     stats = {"tool_calls": 0, "turns": 0, "cost_usd": 0.0, "result": None}
     t_end = time.time() + timeout
@@ -201,6 +215,7 @@ def main():
     ap.add_argument("--timeout", type=float, default=600)
     ap.add_argument("--max-turns", type=int, default=80)
     ap.add_argument("--baseline", action="store_true")
+    ap.add_argument("--objective", choices=sorted(OBJECTIVES), default="verdict")
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
@@ -221,7 +236,8 @@ def main():
             t0 = time.time()
             runner = run_claude if a.agent == "claude" else run_scripted
             try:
-                stats = asyncio.run(runner(inst, work, cert, log, timeout, max_turns=a.max_turns, model=a.model))
+                stats = asyncio.run(runner(inst, work, cert, log, timeout, max_turns=a.max_turns, model=a.model,
+                                         objective=a.objective))
             except Exception as e:
                 log({"event": "harness_error", "error": repr(e)})
                 stats = {"tool_calls": None, "cost_usd": None}

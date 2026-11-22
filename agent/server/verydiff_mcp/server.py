@@ -45,11 +45,15 @@ mcp = MCPServer(
 _state: dict[str, Any] = {"kernel": None, "sandbox": None, "session": None, "calls": 0, "t0": time.time()}
 
 
+_kernel_lock = __import__("threading").Lock()
+
+
 def kernel() -> KernelClient:
-    if _state["kernel"] is None:
-        WORKDIR.mkdir(parents=True, exist_ok=True)
-        _state["kernel"] = KernelClient(log_path=WORKDIR / "kernel.log")
-        _state["kernel"].start()
+    with _kernel_lock:
+        if _state["kernel"] is None:
+            WORKDIR.mkdir(parents=True, exist_ok=True)
+            _state["kernel"] = KernelClient(log_path=WORKDIR / "kernel.log")
+    _state["kernel"].start()
     return _state["kernel"]
 
 
@@ -134,7 +138,8 @@ def auto_expand(node: int, max_nodes: int = 200, max_seconds: float = 30.0, heur
                 rationale: str = "") -> Any:
     """Run VeryDiff's branch-and-bound on all open leaves under `node` within a budget (heuristic: verydiff|widest).
     Every split/closure is recorded in the tree. Returns closed/open counts and the worst distance bounds."""
-    return _call("auto_expand", node=int(node), max_nodes=int(max(1, min(max_nodes, 200000))),
+    cap = int(os.environ.get("VDA_MAX_AUTO_NODES", "200000"))
+    return _call("auto_expand", node=int(node), max_nodes=int(max(1, min(max_nodes, cap))),
                  max_seconds=float(max(0.1, min(max_seconds, 3600))), heuristic=heuristic, rationale=_rat(rationale))
 
 
@@ -298,6 +303,10 @@ def sandbox_reset() -> Any:
 
 
 def main():
+    if os.environ.get("VDA_EAGER_KERNEL", "1") != "0":
+        # start Julia (+ warm-up) in the background so the first tool call does not hit client timeouts
+        import threading
+        threading.Thread(target=kernel, daemon=True).start()
     try:
         mcp.run("stdio")
     finally:
