@@ -61,6 +61,23 @@ relu_width(S::Session, k::Int) = begin
     return 1:dim(S.root_box)
 end
 
+"""Phase lemma: units `neurons` of ReLU layer `relu_layer` are inactive ("off": pre-activation ≤ 0) or active
+("on": ≥ 0) on region(node), in net1 and/or net2. Encoded as one-sided N1/N2 bounds with unconstrained ∂."""
+function introduce_phase_lemma!(S::Session, node::Int, relu_layer::Int, neurons::Vector{Int};
+                                net1::AbstractString="any", net2::AbstractString="any", rationale::AbstractString="")
+    k = length(neurons)
+    side(p) = p == "off" ? (fill(-Inf, k), zeros(k)) : p == "on" ? (zeros(k), fill(Inf, k)) :
+              p == "any" ? nothing : kerr("precondition", "phase must be off|on|any")
+    b1, b2 = side(net1), side(net2)
+    (isnothing(b1) && isnothing(b2)) && kerr("precondition", "give a phase for net1 and/or net2")
+    r = Dict{String,Any}(introduce_lemma!(S, node, relu_layer, neurons, fill(-Inf, k), fill(Inf, k);
+                         n1_bounds=isnothing(b1) ? nothing : [b1[1], b1[2]],
+                         n2_bounds=isnothing(b2) ? nothing : [b2[1], b2[2]],
+                         rationale=isempty(rationale) ? "phase lemma net1=$net1 net2=$net2" : rationale))
+    r["phase"] = Dict("net1" => net1, "net2" => net2)
+    return r
+end
+
 function prove_lemma!(S::Session, L::Int; max_nodes::Int=1000, max_seconds::Float64=60.0, rationale::AbstractString="")
     lem = getlemma(S, L)
     lem.refuted && kerr("precondition", "lemma $L is refuted; retract it")
