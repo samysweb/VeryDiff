@@ -217,8 +217,10 @@ function propagate_layer!(
         # Moved rows are one-sided under the cached bounds, hence (cached ⊆ bounds at allocation time) in the union
         # any_neg|neg_any|any_pos|pos_any|any_any of the allocation bounds, for which init_layer! preallocates
         # ∂ columns when this flag is set.
-        fresh_any_any = get_selectors(bounds₁, bounds₂, ∂bounds)[10]
-        one_sided_diff_fallback!(any_neg, neg_any, any_pos, pos_any, any_any, fresh_any_any)
+        fallback = VeryDiff.NARROWER_DIFF_FALLBACK[] ?
+            narrower_d_based(Zin, lower₁, upper₁, lower₂, upper₂, ∂lower, ∂upper, any_neg, neg_any, any_pos, pos_any) :
+            get_selectors(bounds₁, bounds₂, ∂bounds)[10]
+        one_sided_diff_fallback!(any_neg, neg_any, any_pos, pos_any, any_any, fallback)
     end
     # Do NOT use counts created above for new_gen₁ / new_gen₂,
     # because these omit dimensions where difference is still zero

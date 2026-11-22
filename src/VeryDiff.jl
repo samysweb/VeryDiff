@@ -17,6 +17,12 @@ with the fresh bounds. Sound for any phase combination, since min(0,d) <= ReLU(z
 Off by default (VeryDiff's behaviour is unchanged)."""
 const ONE_SIDED_DIFF_FALLBACK = Ref{Bool}(false)
 
+"""Rule for ONE_SIDED_DIFF_FALLBACK. false: fall back when the fresh zonotope bounds give any_any (the rule above).
+true: fall back for each unit in a one-sided case (under the cached bounds) whose d-based relaxation gives a
+narrower ∂ output row (smaller radius) than the one-sided relaxation. This rule depends only on the cached bounds
+and the input zonotope, not on how the zonotope's fresh bounds compare with the cache. Off by default."""
+const NARROWER_DIFF_FALLBACK = Ref{Bool}(false)
+
 """Number of bound rows that `propagate!` keeps per ReLU layer (see Transformers/BoundRows.jl): cached bounds
 that are tighter than the zonotope's own bounds, used as linear constraints to tighten the cached bounds of later
 ReLU layers by weak duality. 0 = off (default; VeryDiff's behaviour is unchanged)."""

@@ -99,6 +99,41 @@ function one_sided_diff_fallback!(any_neg, neg_any, any_pos, pos_any, any_any, f
     return moved
 end
 
+"""
+    narrower_d_based(Zin, lower₁, upper₁, lower₂, upper₂, ∂lower, ∂upper, any_neg, neg_any, any_pos, pos_any)
+
+For each unit in a one-sided case: true if the d-based relaxation (the any_any case) gives a ∂ output row with a
+smaller radius than the one-sided relaxation. The radii (λ = u/(u−l), α = 1 − λ, μ = −l·u / (2(u − l)) for the
+crossing network; g = generator row of the input):
+    any_neg:  λ₁‖g_z1‖₁ + μ₁            (∂ = relaxed ReLU(z1))
+    neg_any:  λ₂‖g_z2‖₁ + μ₂            (∂ = −relaxed ReLU(z2))
+    any_pos:  ‖g_d − α₁ g_z1‖₁ + μ₁     (∂ = d + relaxed ReLU(z1) − z1)
+    pos_any:  ‖g_d + α₂ g_z2‖₁ + μ₂     (∂ = d − relaxed ReLU(z2) + z2)
+    d-based:  ∂λ‖g_d‖₁ + ∂μ
+Both relaxations are sound for any sound bounds; this only chooses the tighter one.
+"""
+function narrower_d_based(Zin, lower₁, upper₁, lower₂, upper₂, ∂lower, ∂upper, any_neg, neg_any, any_pos, pos_any)
+    mask = falses(length(any_neg))
+    candidates = findall(any_neg .| neg_any .| any_pos .| pos_any)
+    isempty(candidates) && return mask
+    offset, m = noise_layout(Zonotope[Zin.Z₁, Zin.Z₂, Zin.∂Z])
+    for j in candidates
+        _, gd = noise_row(Zin.∂Z, j, offset, m)
+        r_d = ∂λ(∂lower[j], ∂upper[j]) * sum(abs, gd) + ∂μ(∂lower[j], ∂upper[j])
+        if any_neg[j] || any_pos[j]
+            _, g = noise_row(Zin.Z₁, j, offset, m); l = lower₁[j]; u = upper₁[j]
+        else
+            _, g = noise_row(Zin.Z₂, j, offset, m); l = lower₂[j]; u = upper₂[j]
+        end
+        λ = u / (u - l)
+        r_one = any_neg[j] || neg_any[j] ? λ * sum(abs, g) + μ(l, u) :
+                any_pos[j] ? sum(abs, gd .- (1 - λ) .* g) + μ(l, u) :
+                             sum(abs, gd .+ (1 - λ) .* g) + μ(l, u)
+        mask[j] = r_d < r_one
+    end
+    return mask
+end
+
 function init_relu_zonotope(PS :: PropState, input_zono_cache :: CachedZonotope, input_zono :: Zonotope, new_generators :: Int64, layer_idx :: Int64)
     # Compute new generators
     generators = Matrix{Float64}[]

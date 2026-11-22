@@ -54,9 +54,12 @@ using Random
         @test !isnothing(infeasible_rows([BoundRow(Z, [(1, 1, -1.0)], -1.75), BoundRow(Z, [(1, 2, -1.0)], 0.0)]))
     end
 
-    @testset "Sampled points stay inside the bounds of a child box" begin
+    @testset "Sampled points stay inside the bounds of a child box (bound rows; fallback rules)" begin
         input_dim = 5
-        for trial in 1:6
+        for trial in 1:9
+            # trials 4–6: ONE_SIDED_DIFF_FALLBACK with the fresh rule, trials 7–9: with the narrower rule
+            VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = trial > 3
+            VeryDiff.NARROWER_DIFF_FALLBACK[] = trial > 6
             layer_dims = [rand(15:40) for _ in 1:rand(3:6)]
             push!(layer_dims, 6)
             N1o, N2o = make_dense_pair(input_dim, layer_dims; relu=true)
@@ -104,5 +107,7 @@ using Random
             end
             @test bad == 0
         end
+        VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = false
+        VeryDiff.NARROWER_DIFF_FALLBACK[] = false
     end
 end
