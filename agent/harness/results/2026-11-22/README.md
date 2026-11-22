@@ -50,3 +50,10 @@
   1484 checks, checker ACCEPT, 25 tool calls, 16.7 min, SDK-reported $0.93. Opus identified the key unit
   (pruned unit 49 of layer 5, off in net1 by a margin of only 0.6): seeding it would cut the main tree to ≈985,
   but proving it was estimated at ≈2405 nodes in the sandbox, so it used plain best-first splitting.
+* ACAS prop_16, Opus with `trial_lemma` + localisation recipe: SAFE, 1483 nodes / 1483 checks, checker ACCEPT,
+  33 tool calls, 11 min, SDK-reported $0.90. It split at x5 = 0 (hard half 1377, easy half 105) and dry-ran a
+  phase lemma (16 dead units of ReLU 18) in the hard half: proof 919 nodes, saving 30 → net −889; no lemmas used.
+* Direct `trial_lemma` of the layer-5 unit-49 phase lemma (net1 off; `trial_unit49.jl`), net saving in nodes:
+  whole box −1907 (proof 2405, main 1483 → 985); x5<0 half −1761 (2223, 1377 → 915);
+  cells x5∈[−0.5,−0.375] −669, [−0.375,−0.25] −747, [−0.25,0] −343. The lemma never pays off, at any placement.
+  (The kernel's numbers equal Opus's earlier sandbox proxies, 2405/985.)
