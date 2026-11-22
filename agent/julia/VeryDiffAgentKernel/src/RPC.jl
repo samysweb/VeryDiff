@@ -109,7 +109,10 @@ function run_batch(actions; stop_on_error::Bool=true)
             k, i = parse(Int, m[1]), parse(Int, m[2])
             (1 <= k <= length(results) && results[k] isa AbstractDict && haskey(results[k], "children")) ||
                 kerr("bad_request", "reference '$v' points to an action without children")
-            return results[k]["children"][i]
+            ch = results[k]["children"]
+            1 <= i <= length(ch) || kerr("bad_request",
+                "reference '$v': child index must be in 1:$(length(ch)) (children are 1-based)")
+            return ch[i]
         end
         return v
     end
