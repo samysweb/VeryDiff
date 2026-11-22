@@ -139,8 +139,8 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 
 ## Changes to VeryDiff (`src/`, separate commits)
 
-* `d9979d3` "ReLU diff transformer: compute phase cases from cached bounds" (finding 2 below).
-* `549caf4d` "Optional monotone differential ReLU relaxation (flag ONE_SIDED_DIFF_FALLBACK, default off)": a unit
+* `fecc81f1` "ReLU diff transformer: compute phase cases from cached bounds" (finding 2 below).
+* `3541a7e5` "Optional monotone differential ReLU relaxation (flag ONE_SIDED_DIFF_FALLBACK, default off)": a unit
   whose fresh bounds give any_any but whose tighter cached bounds give a one-sided case keeps the d-based
   relaxation (sound since min(0, d) ≤ ReLU(z1) − ReLU(z2) ≤ max(0, d)). Kernel option `fallback`.
 
