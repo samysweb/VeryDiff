@@ -20,3 +20,11 @@
   (2) `read_weights` then reported Linear-layer biases as 0 because these ONNX nets keep the bias in a separate
   AddConst layer, so the agent's "all first-layer hyperplanes pass through the origin" hypothesis was based on
   a tool artefact. Fixed afterwards: `read_weights` now folds the following AddConst bias in (`b_note`).
+* ACAS Xu (verydiff-experiments, `acas-prune`): `ACASXU_run2a_1_1_batch_2000.onnx` vs `..._pruned5.onnx`,
+  `prop_16.vnnlib`, ε = 0.05. VeryDiff CLI: SAFE, 1483 zonotopes. Scripted kernel run: identical tree (1483),
+  checker ACCEPT. Opus (min-nodes, weight analysis, sandbox): SAFE, 1483 nodes, checker ACCEPT, 48 tool calls,
+  13 min, SDK-reported cost $1.35. It correctly identified the pruning (2 dead neurons/layer + small noise,
+  ≈rank-1 diffs), located the three pruned neurons that change phase (all at low x5), split x5 into bands
+  and used batch/per-leaf auto_expand; a layer-9 lemma (sampled bounds + margin) halved the root bound but
+  was not cheaply provable, and lemma proofs cannot use lemmas introduced above them, so no lemma chain.
+  Its sandbox experiments found no input-split plan below ≈1400 nodes.
