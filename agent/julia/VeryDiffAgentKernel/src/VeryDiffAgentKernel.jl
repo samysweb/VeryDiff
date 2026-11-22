@@ -7,7 +7,6 @@ module VeryDiffAgentKernel
 
 using LinearAlgebra
 using Statistics
-using SHA
 using JSON
 using CodecZlib
 using DataStructures

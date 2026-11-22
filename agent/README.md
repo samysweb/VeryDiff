@@ -36,7 +36,7 @@ agent/checker/check_certificate.jl   (separate process; does not use the kernel'
 
 | Path | Contents |
 |---|---|
-| `julia/VeryDiffAgentKernel/src/` | `Regions.jl` (exact boxes, outward task conversion), `Props.jl` (property adapters), `ProofTree.jl`, `Session.jl` (spec hash, derived closure), `Kernel.jl` (seeded copy of `propagate!`: cache seeding, contraction, dual-tightened bounds, infeasibility), `LP.jl` (weak-duality evidence, LP-relaxation rows), `Actions.jl` (check, input/hidden/relational splits), `AutoExpand.jl`, `Lemmas.jl`, `Planning.jl` (`trial_actions`), `Inspect.jl` (read-only tools, `read_weights`, `network_diff_structure`, `difference_attribution`, exports), `Eval.jl`, `Certificate.jl`, `RPC.jl` |
+| `julia/VeryDiffAgentKernel/src/` | `Regions.jl` (exact boxes, outward task conversion), `Props.jl` (property adapters), `ProofTree.jl`, `Session.jl` (session, derived closure), `Kernel.jl` (seeded copy of `propagate!`: cache seeding, dual-tightened bounds, infeasibility), `LP.jl` (weak-duality evidence, LP-relaxation rows), `Actions.jl` (check, input/hidden/relational splits), `AutoExpand.jl`, `Lemmas.jl`, `Planning.jl` (`trial_actions`), `Inspect.jl` (read-only tools, `read_weights`, `network_diff_structure`, `difference_attribution`, exports), `Eval.jl`, `Certificate.jl`, `RPC.jl` |
 | `docs/` | proof write-up, strategy, MCP tool reference, certificate format, example proof script |
 | `julia/VeryDiffAgentKernel/test/runtests.jl` | unit, differential, lemma, cache-hygiene, checker-mutation and RPC tests |
 | `checker/check_certificate.jl` | independent replay checker |
@@ -111,12 +111,12 @@ inspection (incl. program-reading instruments) and sandbox. See [`docs/mcp_tools
   SAFE ⟺ main root closed. There is no close/drop action. UNSAFE needs a concretely re-evaluated cex.
 * **Guards:** a node is never closed if a cache becomes inconsistent (lower > upper, e.g. from a false
   lemma) or if NaN appears in bounds (see findings below), except as an explicit *infeasible* closure: a ReLU
-  layer whose bounds are empty by more than a relative 10⁻⁹ (or a contraction without solution) proves that the
-  node's concrete set is empty.
+  layer whose bounds are empty by more than a relative 10⁻⁹ (or split-constraint rows without a common solution,
+  one row or two rows at a time) proves that the node's concrete set is empty.
 * **Case splits on hidden quantities** (`split_relu`, `split_lin`): both children keep the region and carry the
-  constraint (v ≤ t / v ≥ t, or a linear combination). Every propagation below uses it for contraction of the
-  shared noise box (all live zonotopes are rescaled), cache seeding, dual-tightened bounds at all later ReLU
-  layers (closed-form single-row weak duality), z1 = z2 + d consistency tightening and as rows of the final LP.
+  constraint (v ≤ t / v ≥ t, or a linear combination). Every propagation below uses it for cache seeding,
+  dual-tightened bounds at all later ReLU layers (closed-form single-row weak duality), the infeasibility test,
+  z1 = z2 + d consistency tightening and as rows of the final LP.
 * **LP evidence** (weak duality): a leaf may close with multipliers λ ≥ 0 for rows from lemmas, split
   constraints and (option `lp_relax`) LP-relaxation rows (triangles, identities, differential chords). GLPK only
   proposes λ; the bound is recomputed from λ by kernel and checker.
@@ -134,10 +134,11 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 * `Float64` arithmetic **without outward rounding** inside the transformers; the one-ulp widening only
   closes the gap between the exact box and VeryDiff's centre/radius form.
 * VNNLib.jl ONNX and VNNLIB parsing; `compute_all_outputs` for concrete evaluation.
-* The checker (re-implements boxes, outward conversion, seeding, contraction, LP rows, closure; uses VeryDiff for
-  the transformers and the dual bounds).
-* Spec binding: `spec_hash = sha256(net1, net2, spec, canonical property JSON, git tree hash of VeryDiff's src/)`
-  (length-prefixed parts; `-dirty` suffix if `src/` has local changes).
+* The checker (re-implements boxes, outward conversion, seeding, LP rows, closure; uses VeryDiff for the
+  transformers, the dual bounds and the infeasibility test).
+* No file or version binding: a certificate is checked against the networks and the spec given to the checker,
+  with the VeryDiff code the checker runs with. The answer is "this proof is valid for these files with this
+  checker".
 
 ## Changes to VeryDiff (`src/`, separate commits)
 
@@ -149,6 +150,9 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
   single-row dual bounds (`dual_tighten!`) and the collection of bound rows (cached bounds tighter than the
   zonotope's own bounds). The kernel and the checker use this code for all dual tightening (split constraints and
   bound rows). CLI option `--bound-rows K`; kernel option `bound_rows`.
+* `20d69b8c` "infeasible_rows": one-row and pairwise Farkas test (single-row dual) for split constraints.
+* NARROWER_DIFF_FALLBACK (default off): with ONE_SIDED_DIFF_FALLBACK, keep for each unit the relaxation whose ∂
+  row has the smaller radius, decided from the cached bounds alone. Kernel option `fallback_rule="narrower"`.
 
 ## Findings about VeryDiff
 
@@ -162,8 +166,7 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
    seeded lemma) was still relaxed in ∂. Both now use the cached bounds; cached ⊆ fresh, so cases only move
    from unstable to stable and `init_layer!`'s allocation stays an upper bound. VeryDiff's test suite, the
    kernel tests and the soundness fuzzer pass. Effect (ACAS prop_16, phase-lemma chain 3–18): root bound
-   1072 → 4.4, main tree 963 → 515 nodes. Plain VeryDiff runs are unchanged (1483 zonotopes). Note: the
-   spec hash includes the `src/` tree hash, so certificates made before this commit no longer verify.
+   1072 → 4.4, main tree 963 → 515 nodes. Plain VeryDiff runs are unchanged (1483 zonotopes).
 3. **Generator allocation from the first task.** In VeryDiff a `PropState` is reused for all tasks and
    ReLU generator blocks are sized from the root's fresh bounds; a later task with more unstable neurons
    would trip an assertion. The kernel avoids this with a fresh `PropState` per propagation.
@@ -176,7 +179,7 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 
 | Test | Result |
 |---|---|
-| `VERYDIFF_NO_GUROBI=1 julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | 32,104 pass, ≈ 5 min (regions, seeding, derived closure, differential vs CLI, k-way/partial, UNSAFE, lemmas, LP tightening, ReLU/threshold/relational splits with sampled soundness of the tightened caches, one-sided fallback, LP-relaxation rows valid at the witness, bound rows (kernel and checker caches agree, sampled soundness), cache hygiene, checker mutations, RPC) |
+| `VERYDIFF_NO_GUROBI=1 julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | 32,103 pass, ≈ 5 min (regions, seeding, derived closure, differential vs CLI, k-way/partial, UNSAFE, lemmas, LP tightening, ReLU/threshold/relational splits with sampled soundness of the tightened caches, one-sided fallback, LP-relaxation rows valid at the witness, bound rows (kernel and checker caches agree, sampled soundness), cache hygiene, checker mutations, RPC) |
 | `python3 agent/tests/test_soundness.py` | 0 violations in ≈19.7 M sampled points over 4 SAFE certificates (one with a proven lemma) |
 | `python3 agent/tests/test_e2e.py [--sandbox]` | MCP → kernel → certificate → checker ACCEPT for SAFE and UNSAFE; sandbox has no network, `/exports` read-only, VeryDiff CLI runs inside |
 

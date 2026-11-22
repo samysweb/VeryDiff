@@ -12,10 +12,13 @@ julia --project=agent/julia/VeryDiffAgentKernel agent/checker/check_certificate.
 A complete small example with explanations: [`examples/example_certificate.jsonc`](examples/example_certificate.jsonc)
 (the checkable file is `examples/example_certificate.json`, made by `examples/make_example_certificate.jl`).
 
+The certificate is not bound to file hashes or to a VeryDiff version. The checker answers one question: is this
+proof valid for the two networks and the spec that it is given, with the code that it runs with?
+
 The checker trusts nothing in the certificate except what it re-derives: it re-parses the networks and the spec,
-recomputes the spec hash, reconstructs every region from the spec box and the cuts, re-runs every propagation
-(VeryDiff's transformers and dual bounds, plus its own re-implementations of seeding, contraction and LP-row
-construction), re-evaluates every LP bound from the given multipliers, and derives closure itself.
+reconstructs every region from the spec box and the cuts, re-runs every propagation
+(VeryDiff's transformers, dual bounds and infeasibility test, plus its own re-implementations of seeding and
+LP-row construction), re-evaluates every LP bound from the given multipliers, and derives closure itself.
 Floats that may be infinite are encoded as the strings `"Infinity"` / `"-Infinity"`.
 
 ## Top level
@@ -24,12 +27,10 @@ Floats that may be infinite are encoded as the strings `"Infinity"` / `"-Infinit
 |---|---|
 | `version` | 1 |
 | `kernel_version` | kernel that produced it (informational) |
-| `spec_hash` | sha256 over length-prefixed (net1 bytes, net2 bytes, spec bytes, canonical property JSON, git tree hash of VeryDiff's `src/`, with `-dirty` if modified). The checker recomputes it from the files it is given and its own VeryDiff checkout. |
-| `verydiff_commit`, `verydiff_src_tree` | provenance; `verydiff_src_tree` must equal the checker's |
 | `property` | `{"kind": "epsilon", "epsilon": ε}` (only kind supported by the checker) |
 | `files` | basenames of net1, net2, spec (informational) |
 | `softmax_removed` | whether a final Softmax was dropped (ε refers to the pre-Softmax outputs); must match |
-| `options` | `{"csb": bool, "fallback": bool, "lp_relax": bool, "bound_rows": K, "bound_rows_rtol": r}`: consistency tightening z1 = z2 + d on every ReLU layer; VeryDiff's `ONE_SIDED_DIFF_FALLBACK` flag; whether LP leaves may use relaxation rows; VeryDiff's `BOUND_ROWS` / `BOUND_ROWS_RTOL` (bound rows per ReLU layer, 0 = off; missing = 0 / 0.05) |
+| `options` | `{"csb": bool, "fallback": bool, "lp_relax": bool, "bound_rows": K, "bound_rows_rtol": r, "fallback_rule": "fresh"|"narrower"}`: consistency tightening z1 = z2 + d on every ReLU layer; VeryDiff's `ONE_SIDED_DIFF_FALLBACK` flag; whether LP leaves may use relaxation rows; VeryDiff's `BOUND_ROWS` / `BOUND_ROWS_RTOL` (bound rows per ReLU layer, 0 = off; missing = 0 / 0.05); the rule of the fallback flag (`NARROWER_DIFF_FALLBACK`; missing = "fresh") |
 | `status` | `SAFE`, `UNSAFE` or `PARTIAL` |
 | `spec_box` | `{"lo": [...], "hi": [...]}`, must equal the VNNLIB box |
 | `active_dims` | 1-based input dimensions with lo < hi |
@@ -66,10 +67,10 @@ Each node is `[id, parent, side, kind, payload, region]`:
 | `"o"` open | `{}` | leaf without evidence (only in PARTIAL certificates) |
 
 Hidden-split constraints are inherited by every descendant (and by lemma proofs started below them). In every
-propagation below the split the checker (1) contracts the shared noise box with the constraint and rescales all
-live zonotopes, (2) seeds the bounds cache of layer `k` with the bound, (3) tightens every later ReLU layer's
-cached z1/z2/d bounds by single-row weak duality with the constraint rows, and (4) applies z1 = z2 + d
-consistency tightening on seeded layers.
+propagation below the split the checker (1) seeds the bounds cache of layer `k` with the bound, (2) tightens the
+cached z1/z2/d bounds of layer `k` and of every later ReLU layer by single-row weak duality with the constraint
+rows, (3) at layer `k` tests the constraint rows for a common solution (one row, and pairs of rows), and (4)
+applies z1 = z2 + d consistency tightening on seeded layers.
 
 With `options.bound_rows` = K > 0, every propagation also collects bound rows: after the tightening of a ReLU layer,
 the K cached bounds with the largest gap to the zonotope's own bound (relative to the zonotope interval width, gap >
@@ -83,8 +84,7 @@ all later ReLU layers. The dual bounds and the row selection are VeryDiff's own 
   scope and constraints) and runs VeryDiff's ε check (or, in a lemma obligation, checks the lemma's bounds at the
   stop layer); guards: no NaN, no inconsistent cache.
 * **Infeasible:** `{"inf": true}`. The checker must find, during its own propagation, a ReLU layer whose bounds
-  are empty (lower − upper > 10⁻⁹·(1 + max(|lower|, |upper|)) with finite bounds), a contraction with no
-  solution in the noise box, or (at a layer where split constraints enter) one constraint row or a pair of rows
+  are empty (lower − upper > 10⁻⁹·(1 + max(|lower|, |upper|)) with finite bounds), or (at a layer where split constraints enter) one constraint row or a pair of rows
   with no common solution in the noise box (VeryDiff's `infeasible_rows`: two-multiplier Farkas test by the
   single-row dual, margin 10⁻⁹): the node's concrete set is empty.
 * **LP evidence:** `{"db": d, "lp": {"lemmas": [ids], "cons": [indices], "relax": [[k, j, type], ...], "rows":

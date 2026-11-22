@@ -47,8 +47,7 @@ function do_check!(S::Session, n::Node)
         n.kind = :closed
         n.evidence = Dict{String,Any}("distance_bound" => -Inf, "check" => "infeasible", "infeasible" => res.infeasible)
         n.last_check = Dict{String,Any}("holds" => true, "distance_bound" => -Inf, "outcome" => "closed",
-            "reason" => "infeasible at ReLU layer $(res.infeasible["layer"]): " * (get(res.infeasible, "contraction", false) ?
-                "split constraints have no solution in the noise box" : haskey(res.infeasible, "pair") ?
+            "reason" => "infeasible at ReLU layer $(res.infeasible["layer"]): " * (haskey(res.infeasible, "pair") ?
                 "constraint rows $(res.infeasible["pair"]) have no common solution (dual test)" :
                 "empty bounds for $(res.infeasible["var"])[$(res.infeasible["neuron"])]"),
             "seconds" => round(time() - t; digits=4), "inconsistent_layers" => res.inconsistent, "infeasible" => res.infeasible)
@@ -229,7 +228,7 @@ relu_dim(S::Session, layer::Int) = S.relu_widths[layer]
 """
 Relational case split: Σ_k a_k·v_k ≤ t (child 1) or ≥ t (child 2) over pre-activations v ∈ {z1, z2, d} at the input
 of ReLU layer `layer`. With v = z1 of the first ReLU layer (affine in the input) this is an arbitrary oblique cut
-of the input box. Exhaustive; the constraint is used by contraction, dual-tightened bounds and the final LP.
+of the input box. Exhaustive; the constraint is used by dual-tightened bounds, the infeasibility test and the final LP.
 """
 function do_split_lin!(S::Session, n::Node, layer::Int, terms::Vector{Tuple{String,Int,Float64}}, t::Float64; created_by::Symbol=:agent)
     require_open_leaf(n)

@@ -14,7 +14,7 @@ finally by reading the weights. Detailed numbers are in the experiments branch (
 * **Generic ReLU phase splits** chosen by output-bound attribution (`relu_scores`): each split removes one
   unit's relaxation but the branches still need nearly all of the parent's input splitting; on ACAS 40–48 of 50
   last-layer units were still unstable after many input splits. Two VeryDiff effects made it worse until fixed:
-  an "active" branch is the identity over the whole zonotope (contraction barely helps), and tightening a unit's
+  an "active" branch is the identity over the whole zonotope (the constraint only tightens the caches), and tightening a unit's
   cached bounds could switch the differential transformer to a looser one-sided case (fixed by the
   `ONE_SIDED_DIFF_FALLBACK` flag).
 * **Oblique cuts, layer-1 region enumeration, very narrow bands** in the hard MNIST band: all more expensive
@@ -26,10 +26,10 @@ finally by reading the weights. Detailed numbers are in the experiments branch (
    channels. On MNIST, one hidden activation (r = h₄₅) explained 94 % of the output difference.
 2. **Case-split on the driving hidden quantity, not on inputs.** Bands of r are oblique cuts in input space
    that VeryDiff cannot express; four of ten bands closed with a single propagation each.
-3. **Make the constraint count everywhere below the split:** contraction, dual-tightened intermediate bounds
-   and the split rows in the final LP. Without the dual-tightened bounds the bands did not help; without
-   contraction the short proof needs 40 % more propagations (`mnist_proof.md`, ablation). Bound rows (cached
-   bounds as extra rows, option `bound_rows`) gave nothing measurable.
+3. **Make the constraint count everywhere below the split:** dual-tightened intermediate bounds and the split
+   rows in the final LP. Without the dual-tightened bounds the bands did not help (×21 propagations with LP
+   rows). Bound rows (cached bounds as extra rows, option `bound_rows`) gave nothing measurable. Noise-box
+   contraction was removed: its only benefit came through VeryDiff's split heuristic (`mnist_proof.md`, ablation).
 4. **Tighten the final check where the abstraction loses correlation:** the LP-relaxation rows (triangles,
    identities, differential chords) took the hard band from 6905 to 13 propagations.
 5. **Measure the true margin early.** Optimising the real networks per region (cheap, numpy/scipy) tells you

@@ -39,10 +39,11 @@ const METHODS = Dict{String,Function}(
     "open_session" => p -> begin
         S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"]; csb=Bool(opt(p, "csb", false)),
                          fallback=Bool(opt(p, "fallback", false)), lp_relax=Bool(opt(p, "lp_relax", false)),
-                         bound_rows=Int(opt(p, "bound_rows", 0)), bound_rows_rtol=Float64(opt(p, "bound_rows_rtol", 0.05)))
-        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "fallback" => S.fallback, "lp_relax" => S.lp_relax, "bound_rows" => S.bound_rows, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
+                         bound_rows=Int(opt(p, "bound_rows", 0)), bound_rows_rtol=Float64(opt(p, "bound_rows_rtol", 0.05)),
+                         fallback_rule=String(opt(p, "fallback_rule", "fresh")))
+        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "fallback" => S.fallback, "lp_relax" => S.lp_relax, "bound_rows" => S.bound_rows, "fallback_rule" => S.fallback_rule, "root" => S.obligations[S.main_obligation].root,
              "input_dim" => dim(S.root_box), "active_dims" => S.active_dims, "relu_layers" => S.relu_layers,
-             "softmax_removed" => S.softmax_removed, "verydiff_commit" => S.verydiff_commit)
+             "softmax_removed" => S.softmax_removed)
     end,
     "split_relu" => p -> split_relu!(current(), Int(p["node"]), Int(p["layer"]), Int(p["neuron"]);
                            var=opt(p, "var", "z1"), t=Float64(opt(p, "t", 0.0)), rationale=opt(p, "rationale", "")),

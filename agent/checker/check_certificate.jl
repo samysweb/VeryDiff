@@ -14,26 +14,27 @@
 #   - Float64 arithmetic.
 #
 # What this checker does NOT trust:
-#   - Any value in the certificate that it can compute itself. It recomputes the spec hash, every region,
-#     every propagation, every bound and the closure of the proof tree.
+#   - Any value in the certificate that it can compute itself. It recomputes every region, every propagation,
+#     every bound and the closure of the proof tree, with the networks and the spec that it is given and the
+#     VeryDiff code that it runs with. The certificate is not bound to file hashes or a VeryDiff version: the
+#     answer is "this proof is valid for these files with this checker".
 #   - The kernel. The checker does not load the kernel module. It contains its own implementation of boxes,
-#     cache seeding, contraction, LP rows and closure.
+#     cache seeding, LP rows and closure.
 #
 # The certificate format is described in agent/docs/certificate_format.md.
 #
 # File structure:
 #   1. Errors                      8. Propagation of one node
-#   2. Numbers and provenance      9. LP evidence
+#   2. Numbers                     9. LP evidence
 #   3. Boxes                      10. Reading the certificate
 #   4. Constraints                11. Replay of the proof tree
 #   5. Zonotope rows              12. Closure and result
 #   6. Bounds caches              13. Command line
-#   7. Contraction and dual bounds
+#   7. Dual bounds
 
 module CertChecker
 
 using LinearAlgebra
-using SHA
 using JSON
 using CodecZlib
 using VNNLib
@@ -61,7 +62,7 @@ need(condition, msg) = condition || reject(msg)
 
 
 # =====================================================================================================
-# 2. Numbers and provenance
+# 2. Numbers
 # =====================================================================================================
 
 """Read a number. JSON cannot encode infinity, so the certificate writes it as "Infinity" or "-Infinity"."""
@@ -72,45 +73,6 @@ function decode_number(x)
     s == "-infinity" && return -Inf
     reject("bad number $x")
 end
-
-"""
-Canonical JSON text of a value: keys sorted, no white space, all numbers as Float64.
-The spec hash uses this text for the property. The kernel writes the same text.
-"""
-function canonical_json(x)
-    if x isa AbstractDict
-        keys_sorted = sort!(collect(string.(keys(x))))
-        return "{" * join([JSON.json(k) * ":" * canonical_json(x[k]) for k in keys_sorted], ",") * "}"
-    elseif x isa AbstractVector
-        return "[" * join(canonical_json.(x), ",") * "]"
-    elseif x isa AbstractFloat || x isa Integer
-        return repr(Float64(x))            # the kernel stores property numbers as Float64
-    else
-        return JSON.json(x)
-    end
-end
-
-"""Git tree hash of VeryDiff's src/ directory. A "-dirty" suffix shows local changes."""
-function verydiff_src_tree()
-    root = pkgdir(VeryDiff)
-    tree = try strip(read(`git -C $root rev-parse HEAD:src`, String)) catch; "unknown" end
-    dirty = try !isempty(strip(read(`git -C $root status --porcelain -- src`, String))) catch; true end
-    return String(tree) * (dirty ? "-dirty" : "")
-end
-
-"""
-SHA-256 over the two networks, the spec, the property and the VeryDiff source tree.
-Each part is prefixed with its length, so that the parts cannot run into each other.
-"""
-function spec_hash(net1, net2, spec, property_text, tree)
-    ctx = SHA.SHA256_CTX()
-    for part in (read(net1), read(net2), read(spec), Vector{UInt8}(property_text), Vector{UInt8}(tree))
-        SHA.update!(ctx, Vector{UInt8}(string(length(part), ":")))
-        SHA.update!(ctx, part)
-    end
-    return bytes2hex(SHA.digest!(ctx))
-end
-
 
 # =====================================================================================================
 # 3. Boxes
@@ -347,110 +309,14 @@ end
 
 
 # =====================================================================================================
-# 7. Contraction and dual bounds
+# 7. Dual bounds
 # =====================================================================================================
 #
-# A case-split constraint lo ≤ c + g·ε ≤ hi holds for every concrete input of the node. Two methods use it:
-#   - Contraction: make the noise box [−1, 1]^m smaller, then rescale all live zonotopes to the new box.
-#   - Dual bounds: for any λ ≥ 0, u = c_u + g_u·ε ≤ c_u + Σ|g_u − λ g| + λ (hi − c). Use the best λ.
-#     VeryDiff computes them (src/Transformers/BoundRows.jl). The same function uses the bound rows: cached bounds
-#     that are tighter than the zonotope's own bounds (option bound_rows; VeryDiff selects them).
-
-"""
-Make the box [lo, hi] smaller with the constraint g·ε ≤ rhs.
-Return false if no point of the box satisfies the constraint.
-"""
-function contract_box!(lo, hi, g, rhs)
-    isfinite(rhs) || return true
-    r = rhs + 1e-12 * (abs(rhs) + sum(abs, g) + 1.0)            # allowance for rounding
-    smallest = [x > 0 ? x * lo[i] : x * hi[i] for (i, x) in enumerate(g)]
-    total = sum(smallest)
-    total > r && return false
-    for i in eachindex(g)
-        x = g[i]
-        abs(x) < 1e-300 && continue
-        limit = (r - (total - smallest[i])) / x                 # bound on ε_i from all other terms at their minimum
-        if x > 0
-            limit = nextfloat(nextfloat(limit)) + 1e-12 * abs(limit)
-            limit < hi[i] && (hi[i] = max(limit, lo[i]))
-        else
-            limit = prevfloat(prevfloat(limit)) - 1e-12 * abs(limit)
-            limit > lo[i] && (lo[i] = min(limit, hi[i]))
-        end
-    end
-    return true
-end
-
-"""All distinct zonotopes (Z₁, Z₂, ∂Z of every stored differential zonotope) in the propagation state."""
-function live_zonotopes(P)
-    Zs = Any[]
-    seen = Set{UInt}()
-    for entry in P.zono_storage.zonotopes
-        (entry === nothing || entry.zonotope === nothing) && continue
-        for Z in (entry.zonotope.Z₁, entry.zonotope.Z₂, entry.zonotope.∂Z)
-            objectid(Z) in seen && continue
-            push!(seen, objectid(Z))
-            push!(Zs, Z)
-        end
-    end
-    return Zs
-end
-
-"""
-Contract the noise box with the constraints `seeds` at the input `Zi` of a ReLU layer, then rescale every live
-zonotope: ε_i = mid_i + rad_i · ε′_i with ε′_i ∈ [−1, 1]. Return true if the constraints have no solution.
-"""
-function contract!(P, Zi, seeds::Vector{Seed})
-    offset, m = column_layout([Zi.∂Z, Zi.Z₁, Zi.Z₂])
-    lo = fill(-1.0, m)
-    hi = fill(1.0, m)
-    bounded_rows = Any[]                                        # (c, g, lower, upper) for lower ≤ c + g·ε ≤ upper
-    for s in seeds, (k, j) in enumerate(s.neurons)
-        isnothing(s.n1) || push!(bounded_rows, (zonotope_row(Zi.Z₁, j, offset, m)..., s.n1[1][k], s.n1[2][k]))
-        isnothing(s.n2) || push!(bounded_rows, (zonotope_row(Zi.Z₂, j, offset, m)..., s.n2[1][k], s.n2[2][k]))
-        if isfinite(s.dlo[k]) || isfinite(s.dhi[k])
-            push!(bounded_rows, (zonotope_row(Zi.∂Z, j, offset, m)..., s.dlo[k], s.dhi[k]))
-        end
-    end
-    for s in seeds
-        isempty(s.terms) || push!(bounded_rows, (combination_row(Zi, s.terms, offset, m)..., -Inf, s.rhs))
-    end
-    for _ in 1:2, (c, g, lower, upper) in bounded_rows          # two rounds, as in the kernel
-        contract_box!(lo, hi, g, upper - c) || return true
-        contract_box!(lo, hi, -g, c - lower) || return true
-    end
-    any(lo .> hi) && return true
-
-    # New centre and radius for each column that changed. The radius is rounded up.
-    rescale = Dict{Tuple{Int,Int},Tuple{Float64,Float64}}()
-    for (id, start) in offset
-        width = minimum([v for v in values(offset) if v > start]; init=m) - start
-        for col in 1:width
-            i = start + col
-            lo[i] == -1.0 && hi[i] == 1.0 && continue
-            mid = lo[i] / 2 + hi[i] / 2
-            rescale[(id, col)] = (mid, nextfloat(max(hi[i] - mid, mid - lo[i])))
-        end
-    end
-    isempty(rescale) && return false
-
-    # First move the centres (with the old generators), then scale the generators.
-    # A generator matrix can belong to more than one zonotope: scale each matrix only once.
-    Zs = live_zonotopes(P)
-    for Z in Zs, (block, id) in enumerate(collect(Z.generator_ids)), col in 1:size(Z.Gs[block], 2)
-        haskey(rescale, (id, col)) && (Z.c .+= rescale[(id, col)][1] .* Z.Gs[block][:, col])
-    end
-    scaled = Set{UInt}()
-    for Z in Zs, (block, id) in enumerate(collect(Z.generator_ids))
-        G = Z.Gs[block]
-        objectid(G) in scaled && continue
-        push!(scaled, objectid(G))
-        for col in 1:size(G, 2)
-            haskey(rescale, (id, col)) && (G[:, col] .*= rescale[(id, col)][2])
-        end
-    end
-    return false
-end
+# A case-split constraint a·ε ≤ β holds for every concrete input of the node (ε = the witness of that input).
+#   - Dual bounds: for any λ ≥ 0, u = c + g·ε ≤ c + ‖g − λa‖₁ + λβ. Use the best λ.
+#   - Infeasibility: if one row, or two rows together, have no solution in the noise box, the node is empty.
+# VeryDiff computes both (src/Transformers/BoundRows.jl: dual_tighten!, infeasible_rows). The dual bounds also use
+# the bound rows: cached bounds that are tighter than the zonotope's own bounds (option bound_rows).
 
 """Find a layer by its index."""
 layer_with_index(N, k) = only(l for l in get_layers(N) if l.layer_idx == k)
@@ -489,12 +355,12 @@ Propagate the box [lo, hi] through both networks.
 
   cache_in     the bounds cache that the node inherits (it is copied, not changed)
   seeds        constraints per ReLU layer that go into the cache (lemmas in scope and split constraints)
-  constraints  split constraints per ReLU layer (for contraction and dual bounds)
+  constraints  split constraints per ReLU layer (for dual bounds and the infeasibility test)
   stop         nothing: propagate to the output; k: stop before ReLU layer k (lemma proofs)
   csb          apply the z1 = z2 + d tightening at every ReLU layer
   bound_rows   (K, rtol): collect K bound rows per ReLU layer for the dual bounds of later layers (K = 0: off)
 
-At each ReLU layer, do these steps in this order: contraction, seeding, intersection with the zonotope,
+At each ReLU layer, do these steps in this order: seeding, intersection with the zonotope,
 dual bounds, consistency tightening, test for an empty interval, collection of bound rows, VeryDiff's
 transformer. The kernel uses the same order.
 
@@ -523,9 +389,6 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
         first_pass(P) && configure_first_usage!(L.layer_idx, inputs)
         zonos_initialized(P, get_outputs(L)) || init_layer!(P, L, inputs, get_outputs(L))
         input_zonotopes = get_zonotope.(inputs)
-        if haskey(constraints, L.layer_idx) && contract!(P, input_zonotopes[1], constraints[L.layer_idx])
-            return infeasible()
-        end
         outputs = get_zonos_at_pos(get_outputs(L), P)
         bc = get!(() -> BoundsCache(), cache.bounds_cache, L.layer_idx)
         if haskey(seeds, L.layer_idx)
@@ -754,10 +617,6 @@ function load_problem(C, net1, net2, spec)
     need(get(property, "kind", "") == "epsilon", "the checker supports only epsilon properties")
     epsilon = Float64(property["epsilon"])
     need(isfinite(epsilon) && epsilon >= 0, "bad epsilon")
-    tree = verydiff_src_tree()
-    need(C["verydiff_src_tree"] == tree, "VeryDiff src tree mismatch (certificate $(C["verydiff_src_tree"]), local $tree)")
-    property_text = canonical_json(Dict("kind" => "epsilon", "epsilon" => epsilon))
-    need(spec_hash(net1, net2, spec, property_text, tree) == C["spec_hash"], "spec hash mismatch")
 
     onnx1 = load_onnx_model(net1)
     onnx2 = load_onnx_model(net2)
@@ -1198,6 +1057,9 @@ function check(cert_path, net1, net2, spec; verbose=false)
 
     options = get(C, "options", Dict())
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = Bool(get(options, "fallback", false))
+    rule = get(options, "fallback_rule", "fresh")
+    need(rule in ("fresh", "narrower"), "bad fallback_rule")
+    VeryDiff.NARROWER_DIFF_FALLBACK[] = rule == "narrower"
     tree = read_tree(C, problem)
     bound_rows = (Int(get(options, "bound_rows", 0)), Float64(get(options, "bound_rows_rtol", 0.05)))
     need(bound_rows[1] >= 0 && bound_rows[2] >= 0, "bad bound_rows options")

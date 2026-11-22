@@ -59,10 +59,8 @@ on it (`split_relu` on z1 of unit 45 at the input of ReLU layer 3, with threshol
   [1.025, 1.05], r ≥ 1.05.
 
 The split nodes are not checked (they cost no propagation). Inside a band the constraint lo ≤ r ≤ hi is used by
-four kernel mechanisms (all re-checked by the independent checker):
+three kernel mechanisms (all re-checked by the independent checker):
 
-* **Contraction** of the shared noise box and rescaling of all live zonotopes (weak here: one constraint over
-  hundreds of symbols).
 * **Dual-tightened intermediate bounds:** at every later ReLU layer each unit's z1 / z2 / d bound is tightened by
   weak duality with the band rows (closed form, no LP). This turns "r is in a narrow band" into narrow
   d-intervals for all layer-2 units, so VeryDiff's differential relaxation becomes tight.
@@ -121,12 +119,12 @@ result goes into the bounds cache before VeryDiff's transformer runs.
 
 **Soundness.** The true values of each concrete input satisfy the constraint, and the inequality is true for each
 λ ≥ 0. Thus a bad λ only gives a looser bound, never a wrong one. The checker calculates λ and the bound again
-with its own code, with outward rounding.
+with VeryDiff's code (`src/Transformers/BoundRows.jl`), with outward rounding; it trusts this code like
+VeryDiff's transformers.
 
-**Compared with contraction.** Contraction (the other use of the constraint) makes the interval of each noise
-symbol smaller, one symbol at a time. This is weak when the constraint has hundreds of symbols. Dual tightening
-uses the full direction of the constraint for each unit, so it is strong when a unit depends on the same
-direction as the constraint.
+**Compared with contraction** (removed; see the ablation). Contraction made the interval of each noise symbol
+smaller with the constraint and rescaled all live zonotopes. For one row, and for a slab lo ≤ a·ε ≤ hi, the dual
+bound is exact, so contraction cannot give tighter cached bounds.
 
 **Limits.** It uses one constraint row at a time: with many splits it takes the best single row, so it cannot
 combine rows and cannot show that two constraints together have no solution (Farkas certificates would add
@@ -160,14 +158,23 @@ during `auto_expand`). Bands without LP rows were run to completion; with LP row
 | off | on | off | off | 48,016 | 368 s |
 
 * Dual bounds are the most important mechanism after the LP rows (×21 without them).
-* Contraction is not redundant: ×1.4 with LP rows, ×1.9 without. But it does not give tighter bounds: for one row
-  (and for a slab lo ≤ a·ε ≤ hi, whose exact bound is the better of the two single-row duals) the dual bound is
-  exact, and at the root of the band r ≥ 1.05 the caches with and without contraction are equal at layers 3 and
-  6. The difference comes from `ONE_SIDED_DIFF_FALLBACK`: it decides with the *fresh* zonotope bounds which units
-  keep the d-based relaxation. Contraction makes the fresh bounds tighter, so fewer units fall back (layer 3:
-  units 28, 44, 49, 63, 91 with contraction; also 9, 81, 85 without), and for those units the one-sided relaxation
-  is tighter. A fallback rule that compares the two relaxations on the cached bounds alone would make contraction
-  unnecessary (not done yet).
+* Contraction (now removed from the kernel, the checker and the certificate) cost ×1.4 propagations when
+  switched off with LP rows, ×1.9 without. It did not give tighter bounds (for one row, and for a slab
+  lo ≤ a·ε ≤ hi, the dual bound is exact). Its effect had two causes:
+  1. `ONE_SIDED_DIFF_FALLBACK` decides with the *fresh* zonotope bounds which units keep the d-based relaxation;
+     contraction made the fresh bounds tighter, so fewer units fell back (layer 6 at the root of r ≥ 1.05: unit 9
+     only without contraction; root bound 1.131 with, 1.1485 without). The new rule `fallback_rule="narrower"`
+     (VeryDiff `NARROWER_DIFF_FALLBACK`: keep the relaxation whose ∂ row has the smaller radius, from the cached
+     bounds alone) gives the same root bound (1.131) without contraction.
+  2. **VeryDiff's split heuristic** reads the input zonotope. Contraction rescaled it to the part of the box that
+     satisfies the band, so the heuristic chose other dimensions (r ≥ 1.05: dimension 450 vs 543 directly below
+     the root). Without it the search makes boxes that lie wholly outside the band (9 infeasible leaves) or
+     wholly inside it (11 plain leaves): 85 instead of 45 checks in that band. With contraction used for the
+     heuristic only (not in the check), the whole proof took 122 checks with the narrower rule and 128 with the
+     fresh rule (LP rows on). This is a heuristic question (the checker does not care how the splits were
+     chosen) and is left for later.
+  Narrower rule, no contraction: 174 checks with LP rows (fresh rule: 172), 48,762 without LP rows (fresh rule:
+  48,016). It does not pay on its own; the default stays "fresh".
 * Pairwise infeasibility test (`infeasible_rows`, VeryDiff `src`): no change here (124 / 172 / 48,016); bands are
   single quantities whose emptiness the cache already shows.
 * Bound rows do not help here. The 124 → 122 is noise in the LP multipliers: the checker accepts the K = 10

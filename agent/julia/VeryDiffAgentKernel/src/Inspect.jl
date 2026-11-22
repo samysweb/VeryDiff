@@ -71,7 +71,6 @@ function session_status(S::Session)
     leaves = [S.nodes[i] for i in main_nodes if is_leaf(S.nodes[i])]
     Dict{String,Any}(
         "verdict" => session_verdict(S),
-        "spec_hash" => S.spec_hash,
         "property" => JSON.parse(S.property_canon),
         "main_root" => mroot,
         "main" => Dict("nodes" => length(main_nodes), "open_leaves" => count(n -> n.kind == :open, leaves),
@@ -345,7 +344,7 @@ end
 # ------------------------------------------------------------- exports (full data, for the sandbox)
 function export_data(S::Session, what::AbstractString, node_ids, path::AbstractString)
     ids = isnothing(node_ids) ? Int[] : Int.(collect(node_ids))
-    data = Dict{String,Any}("what" => what, "spec_hash" => S.spec_hash)
+    data = Dict{String,Any}("what" => what)
     if what == "tree"
         data["nodes"] = [Dict("id" => n.id, "parent" => n.parent, "obligation" => n.obligation, "kind" => string(n.kind),
             "lo" => n.region.lo, "hi" => n.region.hi, "distance_bound" => encode_float(n.distance_bound),

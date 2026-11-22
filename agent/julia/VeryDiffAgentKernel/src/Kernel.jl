@@ -53,98 +53,6 @@ function csb_tighten!(bc::BoundsCache)
     dl .= max.(dl, prevfloat.(l1 .- u2)); du .= min.(du, nextfloat.(u1 .- l2))
 end
 
-# ------------------------------------------------------------------ zonotope contraction (case-split constraints)
-# A case-split constraint lo ≤ v_j ≤ hi on a ReLU input holds for every concrete execution of the node. With
-# v_j = c + g·ε over the shared noise symbols, it restricts ε to a smaller box (interval constraint propagation);
-# substituting ε_i = m_i + r_i ε'_i (ε' ∈ [-1,1]) in every live zonotope keeps them sound for the node's concrete
-# set and tightens everything downstream (the "active" branch is no longer the identity over the whole zonotope).
-
-"""Tighten the box [lo,hi] with g·ε ≤ rhs. Returns false if infeasible (with a rounding allowance)."""
-function contract_row!(lo::Vector{Float64}, hi::Vector{Float64}, g::Vector{Float64}, rhs::Float64)
-    isfinite(rhs) || return true
-    slack = 1e-12 * (abs(rhs) + sum(abs, g) + 1.0)
-    r = rhs + slack
-    mins = [gi > 0 ? gi * lo[i] : gi * hi[i] for (i, gi) in enumerate(g)]
-    tot = sum(mins)
-    tot > r && return false
-    for (i, gi) in enumerate(g)
-        abs(gi) < 1e-300 && continue
-        b = (r - (tot - mins[i])) / gi
-        if gi > 0
-            b = nextfloat(nextfloat(b)) + 1e-12 * abs(b)
-            b < hi[i] && (hi[i] = max(b, lo[i] - 0.0))
-        else
-            b = prevfloat(prevfloat(b)) - 1e-12 * abs(b)
-            b > lo[i] && (lo[i] = min(b, hi[i]))
-        end
-    end
-    return true
-end
-
-"""Contract the noise box of the live zonotopes with the constraints `stmts` on the input `Zi` of a ReLU layer
-and rescale every live zonotope in `P`. Returns nothing, or a witness Dict if the constraints are infeasible."""
-function contract_zonos!(P::PropState, Zi, stmts::Vector{LemmaStatement})
-    off, m = var_layout([Zi.∂Z, Zi.Z₁, Zi.Z₂])
-    lo = fill(-1.0, m); hi = fill(1.0, m)
-    rows = Tuple{AffRow,Float64,Float64}[]
-    for st in stmts, (k, j) in enumerate(st.neurons)
-        if !isnothing(st.n1lo); push!(rows, (affrow(Zi.Z₁, j, off, m), st.n1lo[k], st.n1hi[k])); end
-        if !isnothing(st.n2lo); push!(rows, (affrow(Zi.Z₂, j, off, m), st.n2lo[k], st.n2hi[k])); end
-        if isfinite(st.dlo[k]) || isfinite(st.dhi[k]); push!(rows, (affrow(Zi.∂Z, j, off, m), st.dlo[k], st.dhi[k])); end
-    end
-    for st in stmts
-        isempty(st.terms) || push!(rows, (combo_row(Zi, st.terms, off, m), -Inf, st.rhs))
-    end
-    for _ in 1:2, (row, l, u) in rows
-        contract_row!(lo, hi, row.g, u - row.c) || return Dict{String,Any}("contraction" => true)
-        contract_row!(lo, hi, .-row.g, row.c - l) || return Dict{String,Any}("contraction" => true)
-    end
-    any(lo .> hi) && return Dict{String,Any}("contraction" => true)
-    changed = Dict{Int,Vector{Tuple{Int,Float64,Float64}}}()   # block id => (col, m, r)
-    ids = sort(collect(keys(off)))
-    for (t, id) in enumerate(ids)
-        o = off[id]; w = (t < length(ids) ? off[ids[t+1]] : m) - o
-        for c in 1:w
-            i = o + c
-            (lo[i] == -1.0 && hi[i] == 1.0) && continue
-            mm = lo[i] / 2 + hi[i] / 2
-            r = nextfloat(max(hi[i] - mm, mm - lo[i]))       # [mm - r, mm + r] ⊇ [lo, hi]
-            push!(get!(changed, id, Tuple{Int,Float64,Float64}[]), (c, mm, r))
-        end
-    end
-    isempty(changed) && return nothing
-    rescale_storage!(P, changed)
-    return nothing
-end
-
-function rescale_storage!(P::PropState, changed)
-    zs = Any[]; seenz = Set{UInt}()
-    for cz in P.zono_storage.zonotopes
-        (isnothing(cz) || isnothing(cz.zonotope)) && continue
-        for Z in (cz.zonotope.Z₁, cz.zonotope.Z₂, cz.zonotope.∂Z)
-            objectid(Z) in seenz && continue
-            push!(seenz, objectid(Z)); push!(zs, Z)
-        end
-    end
-    for Z in zs, (bi, id) in enumerate(collect(Z.generator_ids))       # centres first, with the original G
-        haskey(changed, id) || continue
-        G = Z.Gs[bi]
-        for (c, mm, _) in changed[id]
-            c <= size(G, 2) && mm != 0.0 && (Z.c .+= mm .* @view G[:, c])
-        end
-    end
-    seeng = Set{UInt}()
-    for Z in zs, (bi, id) in enumerate(collect(Z.generator_ids))
-        haskey(changed, id) || continue
-        G = Z.Gs[bi]
-        objectid(G) in seeng && continue
-        push!(seeng, objectid(G))
-        for (c, _, r) in changed[id]
-            c <= size(G, 2) && (G[:, c] .*= r)
-        end
-    end
-end
-
 # ------------------------------------------------------------------ constraint-aware intermediate bounds
 # Single-row weak duality (VeryDiff `src/Transformers/BoundRows.jl`): for u = c + g·ε and a row a·ε ≤ β, every λ ≥ 0
 # gives u ≤ c + ‖g − λa‖₁ + λβ. The rows are (1) the node's case-split constraints and (2) bound rows that VeryDiff
@@ -220,7 +128,7 @@ propagate_seeded!(N, P, seeds, stop) — copy of `VeryDiff.Transformers.propagat
 """
 function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatement}}, stop::Union{Nothing,Int};
                            csb::Bool=false, infeasible::Ref{Any}=Ref{Any}(nothing),
-                           contract::Dict{Int,Vector{LemmaStatement}}=Dict{Int,Vector{LemmaStatement}}(),
+                           constraints::Vector{LemmaStatement}=LemmaStatement[],
                            crows::Vector{BoundRow}=BoundRow[])
     max_io_id = maximum(max(maximum(l.inputs), maximum(l.outputs)) for l in get_layers(N))
     if max_io_id > length(P.zono_storage.zonotopes)
@@ -242,14 +150,6 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
             init_layer!(P, diff_layer, inputs, output_positions)
         end
         input_zonotopes = get_zonotope.(inputs)
-        if haskey(contract, diff_layer.layer_idx)
-            w = contract_zonos!(P, input_zonotopes[1], contract[diff_layer.layer_idx])
-            if !isnothing(w)
-                w["layer"] = diff_layer.layer_idx
-                infeasible[] = w
-                break
-            end
-        end
         outputs = get_zonos_at_pos(output_positions, P)
         bounds_cache = get!(P.task_bounds.bounds_cache, diff_layer.layer_idx) do
             BoundsCache()
@@ -260,10 +160,10 @@ function propagate_seeded!(N, P::PropState, seeds::Dict{Int,Vector{LemmaStatemen
         end
         if diff_layer.layer1 isa ONNXRelu
             intersect_fresh!(bounds_cache, input_zonotopes[1])
-            rows = vcat(constraint_bound_rows(P, N, get(contract, -1, LemmaStatement[]), diff_layer.layer_idx), crows)
+            rows = vcat(constraint_bound_rows(P, N, constraints, diff_layer.layer_idx), crows)
             isempty(rows) || dual_tighten!(bounds_cache, input_zonotopes[1], rows)
             # New split constraints enter at this layer: test the rows for a common solution (one row, pairs).
-            if haskey(contract, diff_layer.layer_idx)
+            if any(st -> st.relu_layer == diff_layer.layer_idx, constraints)
                 pair = infeasible_rows(rows)
                 if !isnothing(pair)
                     infeasible[] = Dict{String,Any}("layer" => diff_layer.layer_idx, "pair" => collect(pair))
@@ -293,6 +193,7 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = S.fallback
     VeryDiff.BOUND_ROWS[] = S.bound_rows
     VeryDiff.BOUND_ROWS_RTOL[] = S.bound_rows_rtol
+    VeryDiff.NARROWER_DIFF_FALLBACK[] = S.fallback_rule == "narrower"
     cache = deepcopy(cache_in)
     task = to_task(box, S.active_dims, cache; verification_status=verification_status)
     ps = PropState(true)
@@ -302,8 +203,7 @@ function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::
     infeas = Ref{Any}(nothing)
     crows = BoundRow[]
     done = propagate_seeded!(S.N, ps, seeds_for(S, lemma_ids, constraints), stop; csb=S.csb, infeasible=infeas,
-                             contract=merge(seeds_for(S, Int[], constraints), isempty(constraints) ? Dict{Int,Vector{LemmaStatement}}() :
-                                            Dict(-1 => constraints)), crows=crows)
+                             constraints=constraints, crows=crows)
     S.n_propagations += 1
     if !isnothing(infeas[])
         inconsistent = [k for (k, bc) in cache.bounds_cache if cache_inconsistent(bc)]

@@ -113,7 +113,7 @@ def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = Fa
     r = _call("open_session", **paths, property={"kind": "epsilon", "epsilon": float(epsilon)}, csb=bool(csb),
               fallback=bool(fallback), lp_relax=bool(lp_relax), bound_rows=int(bound_rows))
     if "error" not in r:
-        _state["session"] = {**paths, "epsilon": epsilon, "spec_hash": r.get("spec_hash")}
+        _state["session"] = {**paths, "epsilon": epsilon}
         if os.environ.get("VDA_SANDBOX", "1") != "0":
             try:
                 sb = sandbox()
@@ -148,7 +148,7 @@ def split_relu(node: int, layer: int, neuron: int, var: str = "z1", t: float = 0
     """Case split an open leaf on a hidden pre-activation at the input of ReLU layer `layer` (1-based neuron):
     var z1 (N1), z2 (N2) or d (N1−N2). Child 1 assumes v <= t, child 2 assumes v >= t; both keep the region.
     Any threshold t is allowed: e.g. bands of the one activation that drives the difference. Every propagation
-    below uses the constraint: noise-box contraction, dual-tightened bounds at all later ReLU layers and as LP
+    below uses the constraint: dual-tightened bounds at all later ReLU layers, an infeasibility test and LP
     rows in the final check (all re-verified by the checker).
     With t=0 on z1/z2 this fixes the unit's phase (inactive/active) in every propagation below, removing its
     relaxation; the other network's bound is tightened through d. A branch whose bounds become empty closes as

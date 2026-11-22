@@ -18,9 +18,6 @@ mutable struct Session
     active_dims::Vector{Int}
     property::PropertyAdapter
     property_canon::String
-    spec_hash::String
-    verydiff_commit::String
-    verydiff_src_tree::String
     nodes::Dict{Int,Node}
     obligations::Dict{Int,Obligation}
     lemmas::Dict{Int,Lemma}
@@ -40,12 +37,13 @@ mutable struct Session
     lp_relax::Bool                    # option: LP-relaxation rows (triangle, identity, differential) in the final check
     bound_rows::Int                   # option: VeryDiff.BOUND_ROWS (bound rows kept per ReLU layer; 0 = off)
     bound_rows_rtol::Float64          # option: VeryDiff.BOUND_ROWS_RTOL
+    fallback_rule::String             # option: "fresh" or "narrower" (VeryDiff.NARROWER_DIFF_FALLBACK)
 end
 
 const SESSION = Ref{Union{Nothing,Session}}(nothing)
 current() = isnothing(SESSION[]) ? kerr("no_session", "no open session; call open_session first") : SESSION[]
 
-# ------------------------------------------------------------- hashing / provenance
+# ------------------------------------------------------------- property text
 """Canonical JSON: sorted keys, no whitespace, shortest round-trip floats."""
 function canonical_json(x)
     if x isa AbstractDict
@@ -59,30 +57,6 @@ function canonical_json(x)
     else
         return JSON.json(x)
     end
-end
-
-function verydiff_root()
-    return normpath(joinpath(pkgdir(VeryDiff)))
-end
-
-"""(HEAD commit, tree hash of src/ with a -dirty suffix if src/ has local changes)."""
-function verydiff_provenance()
-    root = verydiff_root()
-    commit = try strip(read(`git -C $root rev-parse HEAD`, String)) catch; "unknown" end
-    tree = try strip(read(`git -C $root rev-parse HEAD:src`, String)) catch; "unknown" end
-    dirty = try !isempty(strip(read(`git -C $root status --porcelain -- src`, String))) catch; true end
-    return String(commit), String(tree) * (dirty ? "-dirty" : "")
-end
-
-"""sha256 over (net1 bytes, net2 bytes, spec bytes, canonical property JSON, VeryDiff src tree).
-Each component is length-prefixed so the encoding is unambiguous."""
-function compute_spec_hash(net1::String, net2::String, spec::String, property_canon::String, src_tree::String)
-    ctx = SHA.SHA256_CTX()
-    for part in (read(net1), read(net2), read(spec), Vector{UInt8}(property_canon), Vector{UInt8}(src_tree))
-        SHA.update!(ctx, Vector{UInt8}(string(length(part), ":")))
-        SHA.update!(ctx, part)
-    end
-    return bytes2hex(SHA.digest!(ctx))
 end
 
 # ------------------------------------------------------------- spec loading
@@ -127,20 +101,19 @@ function relu_widths(P)
 end
 
 function open_session(net1::String, net2::String, spec::String, property::AbstractDict; csb::Bool=false, fallback::Bool=false, lp_relax::Bool=false,
-                      bound_rows::Int=0, bound_rows_rtol::Float64=0.05)
+                      bound_rows::Int=0, bound_rows_rtol::Float64=0.05, fallback_rule::String="fresh")
+    fallback_rule in ("fresh", "narrower") || kerr("precondition", "fallback_rule must be \"fresh\" or \"narrower\"")
     t = time()
     VeryDiff.USE_DIFFZONO[] = true
     VeryDiff.NEW_HEURISTIC[] = true
     adapter = make_property(property)
     P = load_problem(net1, net2, spec)
     canon = canonical_json(property_json(adapter))
-    commit, tree = verydiff_provenance()
-    h = compute_spec_hash(net1, net2, spec, canon, tree)
     active = findall(P.root.lo .< P.root.hi)
     S = Session(abspath(net1), abspath(net2), abspath(spec), P.N, P.o1, P.o2, executable_network(P.o1), executable_network(P.o2), P.softmax_removed,
-        P.out_tensor, P.pos_names, P.relu, relu_widths(P), P.root, active, adapter, canon, h, commit, tree,
+        P.out_tensor, P.pos_names, P.relu, relu_widths(P), P.root, active, adapter, canon,
         Dict{Int,Node}(), Dict{Int,Obligation}(), Dict{Int,Lemma}(), 1, 1, 1, 0, nothing,
-        Dict{String,Any}[], 0.0, time(), 0, 0, 0, csb, fallback, lp_relax, bound_rows, bound_rows_rtol)
+        Dict{String,Any}[], 0.0, time(), 0, 0, 0, csb, fallback, lp_relax, bound_rows, bound_rows_rtol, fallback_rule)
     root = new_node!(S, 0, 0, 0, P.root, Int[], TaskBounds(), 1.0, 0, :agent)
     S.main_obligation = new_obligation!(S, :main, root.id, 0, adapter)
     root.obligation = S.main_obligation

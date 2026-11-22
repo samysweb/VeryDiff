@@ -29,13 +29,6 @@
                                                    // claim: |N1(x)_i − N2(x)_i| ≤ 0.064 for all outputs i
                                                    // and all x in the spec box
   "files": {"net1": "net1.onnx", "net2": "net2.onnx", "spec": "spec.vnnlib"},   // information only
-  "spec_hash": "bd2d472475a6559afd08d2a5e9d1833bd89841fe238af676d3a9cd98bd428ca7",
-                                                   // SHA-256 of net1, net2, spec, property and VeryDiff's
-                                                   // src/ tree. The checker computes it again from the files
-                                                   // that you give it. A different file → REJECT.
-  "verydiff_src_tree": "3381bc197341d631fde787e6d94ba37e4707bd51",
-                                                   // must be equal to the checker's VeryDiff src/ tree
-  "verydiff_commit": "2a103f5d99452f5c534c226ac6409e03545a1975",               // information only
   "softmax_removed": false,                        // true: epsilon refers to the outputs before a final Softmax
   "spec_box": {"lo": [-1.0, -1.0], "hi": [1.0, 1.0]},     // must be equal to the box in the VNNLIB file
   "active_dims": [1, 2],                           // input dimensions with lo < hi (1-based)
@@ -69,8 +62,8 @@
     // Child 1 (side 1) assumes z1[1] ≤ −0.33, child 2 (side 2) assumes z1[1] ≥ −0.33. Both children keep the
     // full region: the split cuts the input space along the hidden unit's hyperplane. In MNIST, these splits
     // make the bands on r = h45. "p": false, so this node costs no propagation.
-    // Every propagation below this node uses the constraint: contraction of the noise box, seeding of the bounds
-    // cache, dual-tightened bounds at later ReLU layers, and LP rows ("cons" below).
+    // Every propagation below this node uses the constraint: seeding of the bounds cache, dual-tightened bounds at
+    // later ReLU layers, a test for an empty set, and LP rows ("cons" below).
 
     [2, 1, 1, "c", {"db": 0.058693361965504245},
                    [[-1.0, -1.0], [1.0, 1.0]]],
