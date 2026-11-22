@@ -56,6 +56,9 @@ leave behind a certificate that an independent checker accepts.
      L₂ at a later layer whose proof is helped by L₁'s seed, and so on. Prove the chain from the front
      (`prove_lemma` L₁ first); a lemma only counts as proven when all lemmas its proof used are proven.
      Retracting a lemma also removes every lemma introduced below it.
+   - **Phase lemmas** (`introduce_phase_lemma`): "units J of ReLU layer k are off (pre-activation ≤ 0) /
+     on (≥ 0) on this region, in net1 and/or net2". One-sided, single-network claims are much cheaper to
+     prove than interval bounds and are the natural *first links* of a chain.
    - `prune` to backtrack from a subtree that is not converging.
 6. If you suspect a violation, search for it (sampling/optimisation in the sandbox) and
    `submit_counterexample`.
@@ -116,6 +119,24 @@ row in layer 4; it reaches the output only through units 3 and 7, which are inac
 so ∂ at layer 6 is bounded by the incoming difference times ‖W‖ restricted to those rows". Such an
 argument usually tells you *both* the lemma (bounds at the layer where the argument is tight) and the
 split (the phase boundary that makes it true) that close the proof.
+
+Building lemma chains from the weights (not from sampled ranges):
+- Start with what the weights make *obvious*: units that are dead or always active on the region. For a
+  first-layer unit this is exact interval arithmetic of its weight row and bias against the box. For a later
+  unit, use the bounds of its inputs that the previous links give you. Pruned units (zero row, negative
+  bias) are dead in the pruned network by construction; check whether they are also dead in the other one.
+- Encode these as phase lemmas, layer by layer (each link proven with the previous ones in scope). Only
+  then consider interval (∂ / N1 / N2) lemmas, with bounds derived from the weights plus the previous
+  links, loose enough to prove cheaply.
+- A sampled range plus a margin is usually too tight: proving it needs as much input splitting as the main
+  proof. Prefer weaker, structurally justified bounds.
+- Judge a lemma by total cost: its proof nodes plus the main-tree nodes after seeding, against the main
+  tree without it. A smaller root bound alone does not mean a smaller tree. Measured example (ACAS,
+  pruned net, ε = 0.05): phase lemmas for the dead units at ReLU layers 3–12 cost 594 proof nodes and did
+  not shrink the main tree (1483 → 1487); adding layers 15 and 18 shrank it to 963 but cost 5682 proof
+  nodes in total. The VeryDiff relaxation chooses each unit's case from its *fresh* bounds, so a phase
+  lemma makes N1/N2 exact for that unit but tightens ∂ only indirectly. Links close to the output tend to
+  matter most.
 
 Workflow: derive a candidate bound analytically (or by a small LP/interval computation in numpy over
 the exported zonotope), sanity-check it by sampling (to catch mistakes and get refutations early),

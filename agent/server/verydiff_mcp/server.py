@@ -176,6 +176,21 @@ def introduce_lemma(node: int, relu_layer: int, neurons: list[int], dlo: list[fl
 
 
 @mcp.tool()
+def introduce_phase_lemma(node: int, relu_layer: int, neurons: list[int], net1: str = "any", net2: str = "any",
+                          rationale: str = "") -> Any:
+    """Assume that units `neurons` (1-based) of ReLU layer `relu_layer` are inactive ("off": pre-activation ≤ 0)
+    or active ("on": ≥ 0) on region(node), in net1 and/or net2 ("any" = no claim). Cheaper to prove than interval
+    bounds (one-sided, single network). Same proof/scope rules as introduce_lemma (chainable). Note: VeryDiff picks
+    the ReLU case from fresh bounds, so for a unit that is unstable in both networks the ∂ relaxation is only
+    tightened through N1/N2, not made exact."""
+    for p in (net1, net2):
+        if p not in ("off", "on", "any"):
+            return {"error": "precondition", "message": "phase must be off|on|any"}
+    return _call("introduce_phase_lemma", node=int(node), relu_layer=int(relu_layer), neurons=[int(n) for n in neurons],
+                 net1=net1, net2=net2, rationale=_rat(rationale))
+
+
+@mcp.tool()
 def prove_lemma(lemma: int, max_nodes: int = 200, max_seconds: float = 30.0, rationale: str = "") -> Any:
     """Run auto_expand on the lemma's proof tree (you can also drive it manually with check/split/auto_expand
     on its nodes; see session_status for its root)."""

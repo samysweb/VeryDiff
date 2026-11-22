@@ -238,6 +238,39 @@ end
     @test K.validate_tree(S)
 end
 
+@testset "Phase lemmas (one-sided, ±Inf in certificate)" begin
+    S = open_case("safe_mid")
+    root = S.obligations[S.main_obligation].root
+    found = false
+    auto_expand!(S, root; max_nodes=40)          # small sub-boxes, where some units are provably dead
+    cands = [(l, k) for l in K.open_leaves_below(S, root) for k in S.relu_layers]
+    for (leaf, k) in cands
+        res = K.inspect_propagation(S, S.nodes[leaf]; stop=k)
+        b1 = K.zono_bounds(res.Zout.Z₁); b2 = K.zono_bounds(res.Zout.Z₂)
+        dead = findall((b1[:, 2] .< 0) .& (b2[:, 2] .< 0))
+        isempty(dead) && continue
+        r = introduce_phase_lemma!(S, leaf, k, dead[1:min(3, end)]; net1="off", net2="off")
+        p = prove_lemma!(S, r["lemma"]; max_nodes=100)
+        @test p["lemma_status"] == "proven"
+        auto_expand!(S, root; max_nodes=100_000)
+        @test session_verdict(S) == "SAFE"
+        @test startswith(check_cert(S, "safe_mid"), "ACCEPT SAFE")
+        found = true
+        break
+    end
+    @test found
+    # a false phase claim is refuted concretely
+    S2 = open_case("safe_mid")
+    x = (S2.root_box.lo .+ S2.root_box.hi) ./ 2
+    k = S2.relu_layers[1]
+    h1, _ = K.hidden_at(S2, x, k)
+    j = argmax(h1)
+    h1[j] > 0 || return
+    r = introduce_phase_lemma!(S2, 1, k, [j]; net1="off")
+    @test refute_lemma!(S2, r["lemma"], x)["refuted"] == true
+    @test_throws K.KernelError introduce_phase_lemma!(S2, r["child"], k, [j])
+end
+
 @testset "Cache hygiene: retract restores lemma-free bounds" begin
     S = open_case("safe_mid")
     root = S.obligations[S.main_obligation].root

@@ -70,7 +70,7 @@ end
 function export_certificate(S::Session, path::AbstractString)
     t = time()
     c = certificate(S)
-    s = JSON.json(c)
+    s = JSON.json(sanitize(c))      # ±Inf (e.g. phase lemmas) are encoded as "Infinity"/"-Infinity"
     if endswith(path, ".gz")
         open(path, "w") do io
             gz = GzipCompressorStream(io)
