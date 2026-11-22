@@ -39,12 +39,14 @@ const METHODS = Dict{String,Function}(
     "open_session" => p -> begin
         S = open_session(String(p["net1"]), String(p["net2"]), String(p["spec"]), p["property"]; csb=Bool(opt(p, "csb", false)),
                          fallback=Bool(opt(p, "fallback", false)), lp_relax=Bool(opt(p, "lp_relax", false)))
-        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "fallback" => S.fallback, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
+        Dict("relu_widths" => Dict(string(k) => v for (k, v) in S.relu_widths), "csb" => S.csb, "fallback" => S.fallback, "lp_relax" => S.lp_relax, "spec_hash" => S.spec_hash, "root" => S.obligations[S.main_obligation].root,
              "input_dim" => dim(S.root_box), "active_dims" => S.active_dims, "relu_layers" => S.relu_layers,
              "softmax_removed" => S.softmax_removed, "verydiff_commit" => S.verydiff_commit)
     end,
     "split_relu" => p -> split_relu!(current(), Int(p["node"]), Int(p["layer"]), Int(p["neuron"]);
                            var=opt(p, "var", "z1"), t=Float64(opt(p, "t", 0.0)), rationale=opt(p, "rationale", "")),
+    "trial_actions" => p -> trial_actions!(current(), Int(p["node"]), p["actions"]; max_nodes=min(Int(opt(p, "max_nodes", 2000)), auto_cap()),
+                           baseline=Bool(opt(p, "baseline", true)), max_seconds=Float64(opt(p, "max_seconds", 600.0))),
     "split_lin" => p -> split_lin!(current(), Int(p["node"]), Int(p["layer"]), p["terms"], Float64(p["t"]);
                            rationale=opt(p, "rationale", "")),
     "network_diff_structure" => p -> network_diff_structure(current(); tol=Float64(opt(p, "tol", 1e-3))),

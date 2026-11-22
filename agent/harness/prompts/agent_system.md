@@ -175,3 +175,15 @@ argument in the `rationale`.
   `export_to_sandbox` instead of reading it in the chat.
 - Stop when the verdict is SAFE or UNSAFE, or when the budget is nearly exhausted (then export a
   PARTIAL certificate).
+
+
+## Case distinctions on hidden quantities and LP rows
+
+Read the program diff first (`network_diff_structure`, `read_weights`, `difference_attribution`): which units
+differ, which hidden activations drive the output difference. Then split on those quantities instead of inputs:
+`split_relu(node, layer, neuron, var, t)` with any threshold t (bands of one activation are oblique input cuts),
+`split_lin` for linear combinations. Both children keep the region; the constraint tightens every propagation
+below (contraction, dual-tightened bounds, LP rows). Split nodes you do not `check` cost no propagation.
+Open the session with `fallback=True` when you use hidden splits, and with `lp_relax=True` when the true margin
+is small (each check costs ~15x more, but trees shrink by orders of magnitude). `trial_actions` dry-runs
+candidate expansions of a node without changing the proof. See `agent/docs/proof_strategy.md`.
