@@ -228,7 +228,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
                 bc.lower₂ .= max.(bc.lower₂, b2[:, 1]); bc.upper₂ .= min.(bc.upper₂, b2[:, 2])
                 bc.∂lower .= max.(bc.∂lower, bd[:, 1]); bc.∂upper .= min.(bc.∂upper, bd[:, 2])
             end
-            if csb
+            if csb || haskey(seeds, L.layer_idx)
                 bc.lower₁ .= max.(bc.lower₁, prevfloat.(bc.lower₂ .+ bc.∂lower)); bc.upper₁ .= min.(bc.upper₁, nextfloat.(bc.upper₂ .+ bc.∂upper))
                 bc.lower₂ .= max.(bc.lower₂, prevfloat.(bc.lower₁ .- bc.∂upper)); bc.upper₂ .= min.(bc.upper₂, nextfloat.(bc.upper₁ .- bc.∂lower))
                 bc.∂lower .= max.(bc.∂lower, prevfloat.(bc.lower₁ .- bc.upper₂)); bc.∂upper .= min.(bc.∂upper, nextfloat.(bc.upper₁ .- bc.lower₂))
