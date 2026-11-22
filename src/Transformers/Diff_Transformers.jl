@@ -208,7 +208,11 @@ function propagate_layer!(
         any_pos,
         pos_any,
         any_any
-    ) = get_selectors(bounds₁, bounds₂, ∂bounds)
+    ) = get_selectors([lower₁ upper₁], [lower₂ upper₂], [∂lower ∂upper])
+    # Phase cases are computed from the cached (intersected) bounds, the same bounds the relaxation
+    # parameters below use. Cached ⊆ fresh, so a unit can only move from an unstable to a stable case,
+    # never the other way; the generator columns allocated in init_layer! (from fresh bounds) therefore
+    # remain an upper bound.
     # Do NOT use counts created above for new_gen₁ / new_gen₂,
     # because these omit dimensions where difference is still zero
     new_gen₁ = count(lower₁ .< 0.0 .&& upper₁ .> 0.0)
