@@ -141,6 +141,9 @@ def split(node: int, dim: int, cut: float | None = None, cuts: list[float] | Non
 def split_relu(node: int, layer: int, neuron: int, var: str = "z1", t: float = 0.0, rationale: str = "") -> Any:
     """Case split an open leaf on a hidden pre-activation at the input of ReLU layer `layer` (1-based neuron):
     var z1 (N1), z2 (N2) or d (N1−N2). Child 1 assumes v <= t, child 2 assumes v >= t; both keep the region.
+    Any threshold t is allowed: e.g. bands of the one activation that drives the difference. Every propagation
+    below uses the constraint: noise-box contraction, dual-tightened bounds at all later ReLU layers and as LP
+    rows in the final check (all re-verified by the checker).
     With t=0 on z1/z2 this fixes the unit's phase (inactive/active) in every propagation below, removing its
     relaxation; the other network's bound is tightened through d. A branch whose bounds become empty closes as
     'infeasible' when checked. Chain two calls (z1 then z2) for a 4-way phase split; unchecked split nodes cost
@@ -149,6 +152,26 @@ def split_relu(node: int, layer: int, neuron: int, var: str = "z1", t: float = 0
         return {"error": "precondition", "message": "var must be z1|z2|d"}
     return _call("split_relu", node=int(node), layer=int(layer), neuron=int(neuron), var=var, t=float(t),
                  rationale=_rat(rationale))
+
+
+@mcp.tool()
+def network_diff_structure(tol: float = 1e-3) -> Any:
+    """How N2 differs from N1, per dense layer (1-based units): units/inputs whose weights differ by > tol, units
+    knocked out (zero weight row) in either network and their bias, inputs ignored, and the max weight/bias
+    difference elsewhere (noise level). Start here to read the 'program diff' (e.g. pruning, fine-tuning)."""
+    return _call("network_diff_structure", tol=float(tol))
+
+
+@mcp.tool()
+def difference_attribution(node: int, layer: int, row: int, n_samples: int = 20000, top_k: int = 15,
+                           sign: int = 1) -> Any:
+    """Sampled decomposition of the N1−N2 difference of row `row` of dense layer `layer` (its pre-activation)
+    into per-input-unit terms W1[row,j]·a1_j − W2[row,j]·a2_j, over the node's region and case-split constraints.
+    Returns the sampled max difference, the sum of per-term maxima (what abstract interpretation effectively adds
+    up), and the units with the largest 'loss' (own max − value at the arg-max point) with phase frequencies:
+    candidates for case distinctions. sign=-1 analyses the lower side. Inspection only, not a bound."""
+    return _call("difference_attribution", node=int(node), layer=int(layer), row=int(row),
+                 n_samples=int(max(100, min(n_samples, 200000))), top_k=int(top_k), sign=1 if sign >= 0 else -1)
 
 
 @mcp.tool()

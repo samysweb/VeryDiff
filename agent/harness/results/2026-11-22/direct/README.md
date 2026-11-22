@@ -42,3 +42,19 @@ VeryDiff run of the same instance: this is a certificate-size experiment, not a 
   finished at 86,901 in total) — clearly worse. 12,476 of 36,000 expansions were ReLU splits; the proxy accepts
   them when a branch's bound drops, but the branches keep needing input splits (VeryDiff's input heuristic does
   not see the constraint), so the tree gets wider.
+
+## MNIST by reading the weights (`mnist68_proof.jl`): 24,802 propagations vs 118,707 (−79 %), checker ACCEPT
+Facts from the weights (`network_diff_structure`, `load.py`/`sample.py`, `difference_attribution`):
+N2 = N1 with layer-1 units {31,38,45,80,95} and layer-2 units {10,37,38,51,86} knocked out; other weights equal to
+4.2e-4. Over the box, pruned layer-1 units 31/38/80/95 are always off in N1, unit 45 always on with
+r = h45(x) ∈ [0.058, 1.133] (exact: affine in the 15 free pixels). The critical output 4 is a stable identity
+output, diff_4 ≈ 0.2 + 0.65 r (sampled max 0.923). Root slack: sum of per-unit maxima of the 21 mixed layer-2
+units is 1.10 (vs true 0.92), VeryDiff 1.187.
+Proof: case split on r (z1 of unit 45 at ReLU layer 3) into bands; inside each band the constraint is used by
+three kernel mechanisms (all re-checked by the independent checker): noise-box contraction, dual-tightened
+intermediate bounds at every later ReLU layer (closed-form single-row weak duality), and LP rows in the final
+check. Per band (propagations): r ≤ 0.55: 1, [0.55,0.65]: 1, [0.65,0.75]: 1, [0.75,0.85]: 1, [0.85,0.95]: 1857,
+[0.95,0.975]: 3827, [0.975,1.0]: 6905, [1.0,1.025]: 6789, [1.025,1.05]: 3449, [1.05,1.133]: 1965.
+Development cost: one failed band layout ([0.95,1.05] did not close within 30k checks), a few hundred probe
+propagations, sampling in numpy. Phase splits on the high-loss units (N2 unit 69, 34, 50, 76) only gained
+0.02–0.08 in one branch and were not used.
