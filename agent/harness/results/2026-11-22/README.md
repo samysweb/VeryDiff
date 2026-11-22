@@ -28,3 +28,8 @@
   and used batch/per-leaf auto_expand; a layer-9 lemma (sampled bounds + margin) halved the root bound but
   was not cheaply provable, and lemma proofs cannot use lemmas introduced above them, so no lemma chain.
   Its sandbox experiments found no input-split plan below ≈1400 nodes.
+* ACAS prop_16 rerun with lemma chaining available (`acas_prop16_opus_chaining*`): SAFE, 1451 nodes (−2.2 % vs
+  1483), checker ACCEPT, 43 tool calls, 12.6 min, SDK-reported cost $1.45. Opus planned a chain ReLU 9→12→15→18
+  but dropped it after the first link: the ReLU-9 lemma halved the root bound (1537→765) yet its own proof had
+  87/94 leaves open after 100 nodes. Final proof: a 6×3×6 input grid chosen from sandbox experiments, finished
+  per cell with auto_expand.
