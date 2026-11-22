@@ -1,65 +1,60 @@
 status:
         naive: SAFE
-   claude_verdict: SAFE
    claude_min: SAFE
+   opus_weights: SAFE
 nodes_total:
         naive: 3763
-   claude_verdict: 3763
    claude_min: 3441
+   opus_weights: 3503
 main_nodes:
         naive: 3763
-   claude_verdict: 3763
    claude_min: 3441
+   opus_weights: 3503
 main_leaves:
         naive: 1882
-   claude_verdict: 1882
    claude_min: 1721
+   opus_weights: 1752
 lemma_nodes:
         naive: 0
-   claude_verdict: 0
    claude_min: 0
+   opus_weights: 0
 max_depth:
         naive: 16
-   claude_verdict: 16
    claude_min: 15
+   opus_weights: 15
 mean_leaf_depth:
         naive: 11.37
-   claude_verdict: 11.37
    claude_min: 11.75
+   opus_weights: 11.21
 split_dims:
         naive: {1: 429, 2: 492, 3: 533, 4: 427}
-   claude_verdict: {1: 429, 2: 492, 3: 533, 4: 427}
    claude_min: {1: 432, 2: 500, 3: 565, 4: 223}
+   opus_weights: {1: 332, 2: 463, 3: 512, 4: 444}
 manual_splits:
         naive: 0
-   claude_verdict: 0
    claude_min: 11
+   opus_weights: 1
 non_midpoint_cuts:
         naive: 0
-   claude_verdict: 0
    claude_min: 14
+   opus_weights: 0
 first_splits(depth,dim,rel_cut):
         naive: [(0, 2, 0.5), (1, 1, 0.5), (1, 1, 0.5), (2, 3, 0.5), (2, 4, 0.5), (2, 4, 0.5), (2, 4, 0.5)]
-   claude_verdict: [(0, 2, 0.5), (1, 1, 0.5), (1, 1, 0.5), (2, 3, 0.5), (2, 4, 0.5), (2, 4, 0.5), (2, 4, 0.5)]
    claude_min: [(0, 2, 0.75), (1, 4, 0.25), (1, 1, 0.25), (2, 4, 0.5), (2, 4, 0.333), (2, 4, 0.25), (2, 1, 0.333)]
+   opus_weights: [(0, 2, 0.5), (1, 1, 0.5), (1, 1, 0.5), (2, 3, 0.5), (2, 3, 0.5), (2, 3, 0.5), (2, 3, 0.5)]
 lemmas:
         naive: []
-   claude_verdict: []
    claude_min: []
+   opus_weights: []
 actions:
         naive: {'check': 1, 'auto_expand': 2}
-   claude_verdict: {'check': 1, 'auto_expand': 2}
    claude_min: {'check': 1, 'auto_expand': 48, 'prune': 1, 'split': 11}
+   opus_weights: {'check': 1, 'auto_expand': 5, 'prune': 1, 'split': 1}
 
 rationales [naive]:
    - check: scripted: root
    - auto_expand: scripted: budgeted VeryDiff search
    - auto_expand: scripted: budgeted VeryDiff search
-
-rationales [claude_verdict]:
-   - check: Try to close the whole box directly.
-   - auto_expand: Low-dimensional input; branch-and-bound should be effective.
-   - auto_expand: Continue branch-and-bound; bounds are near epsilon.
 
 rationales [claude_min]:
    - check: Baseline check of root.
@@ -74,3 +69,13 @@ rationales [claude_min]:
    - split: Planner lookahead: cut x1 at -0.5, the easy part of the slab.
    - split: Planner: 4-way x4 split for this sub-box.
    - split: Planner: 4-way x3 split for this sub-box.
+
+rationales [opus_weights]:
+   - check: Baseline check of the whole box.
+   - auto_expand: Gauge difficulty: diffuse noise perturbation, every layer-1 unit unstable at origin; let heuristic split first.
+   - auto_expand: Diffuse noise perturbation with all layer-1 units unstable gives no structural lever; measure convergence rate of routine splitting per leaf.
+   - auto_expand: Remaining leaves are converging under routine splitting (69/100 closed within 40 checks); finish them per leaf.
+   - prune: Backup certificate saved; try a tree derived from the origin-hyperplane hypothesis to reduce node count.
+   - split: All layer-1 hyperplanes pass through origin (zero bias); split at 0.
+   - auto_expand: Compare widest heuristic on halves.
+   - auto_expand: Diffuse perturbation: uniform (widest) refinement shrinks all input generators evenly; finish per leaf.
