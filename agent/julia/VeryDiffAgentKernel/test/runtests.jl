@@ -577,6 +577,59 @@ end
         e = only(x for x in c["nodes"] if x[4] == "s" && get(x[5], "b", "") == "lin"); e[5]["terms"] = [] end), "REJECT")
 end
 
+@testset "LP-relaxation rows: valid at the witness, certified, tamper-evident" begin
+    for name in ("safe_hard", "safe_mid")
+        S = open_session(INST[name]["net1"], INST[name]["net2"], INST[name]["spec"],
+                         Dict("kind" => "epsilon", "epsilon" => INST[name]["epsilon"]); fallback=true, lp_relax=true)
+        check!(S, 1)
+        n = S.nodes[1]
+        res = K.inspect_propagation(S, n)
+        # one witness ε reproducing every stored zonotope row at a concrete point must satisfy every relaxation row
+        Zs = Any[]; vals = Vector{Float64}[]
+        rng = MersenneTwister(2)
+        for trial in 1:8
+            x = S.root_box.lo .+ rand(rng, length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo)
+            o1, o2 = K.eval_raw(S, x)
+            Zs = Any[]; vals = Vector{Float64}[]
+            for L in K.get_layers(S.N), pos in (K.get_inputs(L)[1], K.get_outputs(L)[1])
+                cz = res.ps.zono_storage.zonotopes[pos]; (isnothing(cz) || isnothing(cz.zonotope)) && continue
+                nm = get(S.pos_names, pos, ""); haskey(o1, nm) || continue
+                v1 = Float64.(vec(o1[nm])); v2 = Float64.(vec(o2[nm]))
+                for (Z, v) in ((cz.zonotope.Z₁, v1), (cz.zonotope.Z₂, v2), (cz.zonotope.∂Z, v1 .- v2))
+                    push!(Zs, Z); push!(vals, v)
+                end
+            end
+            off, m = K.var_layout(Zs)
+            md = K.Model(K.GLPK.Optimizer); K.set_silent(md)
+            K.@variable(md, -1 <= e[1:m] <= 1); K.@variable(md, sres >= 0)
+            for (Z, v) in zip(Zs, vals), j in eachindex(v)
+                r = K.affrow(Z, j, off, m)
+                K.@constraint(md, r.c + sum(r.g[i] * e[i] for i in 1:m if r.g[i] != 0; init=0.0) - v[j] <= sres)
+                K.@constraint(md, -(r.c + sum(r.g[i] * e[i] for i in 1:m if r.g[i] != 0; init=0.0) - v[j]) <= sres)
+            end
+            K.@objective(md, Min, sres); K.optimize!(md)
+            @test K.objective_value(md) <= 1e-8
+            ew = K.value.(e)
+            rr, rv, spec = K.relax_rows(S, res, off, m)
+            @test !isempty(rv)
+            @test maximum(rr[i]' * ew - rv[i] for i in eachindex(rv)) <= 1e-7
+        end
+        name == "safe_mid" || continue      # complete proofs only on the small instance (GLPK is slow on safe_hard)
+        auto_expand!(S, 1; max_nodes=100000)
+        @test session_verdict(S) == "SAFE"
+        @test startswith(check_cert(S, name), "ACCEPT")
+        used = any(x -> x.kind == :closed && !isnothing(x.evidence) && haskey(x.evidence, "lp") && haskey(x.evidence["lp"], "relax"), values(S.nodes))
+        @test used
+        if used
+            first_relax(c) = first(e for e in c["nodes"] if e[4] == "c" && haskey(e[5], "lp") && haskey(e[5]["lp"], "relax"))
+            @test startswith(check_cert(S, name; mutate=c -> (first_relax(c)[5]["lp"]["relax"][1][3] = "bogus")), "REJECT")
+            @test startswith(check_cert(S, name; mutate=c -> (first_relax(c)[5]["lp"]["relax"][1][2] = 10^6)), "REJECT")
+            @test startswith(check_cert(S, name; mutate=c -> (c["options"]["lp_relax"] = false)), "REJECT")
+            @test startswith(check_cert(S, name; mutate=c -> (for r in first_relax(c)[5]["lp"]["rows"]; r["lam"] .= -1.0; end)), "REJECT")
+        end
+    end
+end
+
 @testset "Checker mutations" begin
     S = open_case("safe_split")
     auto_expand!(S, S.obligations[S.main_obligation].root; max_nodes=10_000)
