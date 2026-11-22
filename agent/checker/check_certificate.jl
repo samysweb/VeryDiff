@@ -444,6 +444,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
     # lemma chaining: a lemma's proof starts from the cache and lemma scope of its assume node
     lemma_init = Dict{Int,Tuple{TaskBounds,Vector{Int},Vector{Tuple{Int,Seed}}}}()
     csb = Bool(get(get(C, "options", Dict()), "csb", false))
+    VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = Bool(get(get(C, "options", Dict()), "fallback", false))
     obl_of = Dict{Int,Int}()
     verified_leaf = Dict{Int,Bool}()
     region[mains[1].root] = (copy(lo0), copy(hi0))

@@ -251,6 +251,7 @@ end
 function run_propagation(S::Session, box::Box, cache_in::TaskBounds, lemma_ids::Vector{Int},
                          stop::Union{Nothing,Int}; verification_status=nothing,
                          constraints::Vector{LemmaStatement}=LemmaStatement[])
+    VeryDiff.ONE_SIDED_DIFF_FALLBACK[] = S.fallback
     cache = deepcopy(cache_in)
     task = to_task(box, S.active_dims, cache; verification_status=verification_status)
     ps = PropState(true)
