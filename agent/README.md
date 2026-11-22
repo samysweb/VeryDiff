@@ -102,6 +102,13 @@ JSON + NPZ), `sandbox_reset`.
 * **Guards:** a node is never closed if a cache becomes inconsistent (lower > upper, e.g. from a false
   lemma) or if NaN appears in bounds (see findings below).
 
+## Cost metrics
+
+`session_status`, certificates (`stats`) and `harness/summary.csv` report **nodes** (proof-tree size),
+**checks** (VeryDiff propagations done by proof actions: every check, including failed ones, lemma proofs
+and work later pruned) and **inspection propagations** (read-only tools). The `min-cost` harness objective
+asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alias).
+
 ## Trust base
 
 * VeryDiff's transformers (`propagate_layer!`, `init_layer!`), `get_epsilon_property`, `zono_bounds`.
@@ -118,10 +125,14 @@ JSON + NPZ), `sandbox_reset`.
    bound fails that test and the property reports success. NaN can arise in the ReLU transformer when a
    cached interval collapses (`lower == upper`) for a neuron that the *fresh* bounds classify as unstable
    (`α = -l/(u-l)`). The kernel and the checker refuse to close such nodes; plain VeryDiff does not guard.
-2. **Selectors from fresh bounds, slopes from cached bounds.** `get_selectors` uses the fresh bounds,
-   while α/μ/∂λ use the cached (tighter) bounds. Cached ⊆ fresh, so fresh-definite implies cached-definite;
-   the mixed case (fresh unstable, cached stable) was checked by hand for `any_pos` (the relaxation still
-   contains the exact value). Not proven in general — covered empirically by the soundness fuzzer.
+2. **Selectors from fresh bounds, slopes from cached bounds — changed in `src/` (separate commit
+   "ReLU diff transformer: compute phase cases from cached bounds").** Previously `get_selectors` used the
+   fresh bounds while α/μ/∂λ used the cached ones, so a unit proven stable by the cache (inherited bound or
+   seeded lemma) was still relaxed in ∂. Both now use the cached bounds; cached ⊆ fresh, so cases only move
+   from unstable to stable and `init_layer!`'s allocation stays an upper bound. VeryDiff's test suite, the
+   kernel tests and the soundness fuzzer pass. Effect (ACAS prop_16, phase-lemma chain 3–18): root bound
+   1072 → 4.4, main tree 963 → 515 nodes. Plain VeryDiff runs are unchanged (1483 zonotopes). Note: the
+   spec hash includes the `src/` tree hash, so certificates made before this commit no longer verify.
 3. **Generator allocation from the first task.** In VeryDiff a `PropState` is reused for all tasks and
    ReLU generator blocks are sized from the root's fresh bounds; a later task with more unstable neurons
    would trip an assertion. The kernel avoids this with a fresh `PropState` per propagation.

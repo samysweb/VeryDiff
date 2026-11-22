@@ -114,6 +114,10 @@ def fuzz(cert_path, net1, net2, rng=np.random.default_rng(0)):
         nidx = np.array(L["neurons"]) - 1
         dd = h1[:, nidx] - h2[:, nidx]
         lem_viol += int(((dd < dec(L["dlo"]) - 1e-12) | (dd > dec(L["dhi"]) + 1e-12)).sum())
+        for key, h in (("n1", h1), ("n2", h2)):          # per-network (e.g. phase-lemma) bounds
+            if key in L:
+                v = h[:, nidx]
+                lem_viol += int(((v < dec(L[key][0]) - 1e-12) | (v > dec(L[key][1]) + 1e-12)).sum())
     out["lemma_violations"] = lem_viol
     out["ok"] = (C["status"] != "SAFE") or (viol == 0 and lem_viol == 0)
     return out
