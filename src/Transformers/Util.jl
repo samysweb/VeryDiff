@@ -84,6 +84,21 @@ function get_selectors(bounds₁, bounds₂, ∂bounds)
     )
 end
 
+"""
+Move rows that are in a one-sided case (any_neg, neg_any, any_pos, pos_any) but in `fresh_any_any` to `any_any`
+(in place). Returns the number of moved rows.
+"""
+function one_sided_diff_fallback!(any_neg, neg_any, any_pos, pos_any, any_any, fresh_any_any)
+    moved = 0
+    for i in eachindex(any_any)
+        (fresh_any_any[i] && (any_neg[i] || neg_any[i] || any_pos[i] || pos_any[i])) || continue
+        any_neg[i] = false; neg_any[i] = false; any_pos[i] = false; pos_any[i] = false
+        any_any[i] = true
+        moved += 1
+    end
+    return moved
+end
+
 function init_relu_zonotope(PS :: PropState, input_zono_cache :: CachedZonotope, input_zono :: Zonotope, new_generators :: Int64, layer_idx :: Int64)
     # Compute new generators
     generators = Matrix{Float64}[]
