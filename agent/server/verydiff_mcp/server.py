@@ -92,12 +92,15 @@ def _rat(r: str | None) -> str:
 
 # ====================================================================== session
 @mcp.tool()
-def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = False, fallback: bool = False) -> Any:
+def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = False, fallback: bool = False,
+                 lp_relax: bool = False) -> Any:
     """Open a proof session for ε-equivalence (max_i |N1(x)_i − N2(x)_i| ≤ ε for all x in the VNNLIB input box).
     The spec is fixed for the session. Returns the root node id and layer info (ReLU layers and widths).
     csb=True tightens every ReLU-input bound with z1 = z2 + d (always done on layers with splits/lemmas).
     fallback=True relaxes one-sided differential ReLU cases with the d-based relaxation when narrower (sound;
-    recommended with split_relu, where fixing one phase can otherwise loosen the difference)."""
+    recommended with split_relu, where fixing one phase can otherwise loosen the difference).
+    lp_relax=True adds LP-relaxation rows (per-network triangles, identities d = z1 − z2 / t = a1 − a2, differential
+    chords) to the final check of every node: much tighter bounds, ~15x the cost of a plain propagation per check."""
     for p in (net1, net2, spec):
         if not Path(p).is_file():
             return {"error": "io", "message": f"file not found: {p}"}
@@ -105,7 +108,7 @@ def open_session(net1: str, net2: str, spec: str, epsilon: float, csb: bool = Fa
         return {"error": "precondition", "message": "epsilon must be finite and >= 0"}
     paths = {k: str(Path(v).resolve()) for k, v in (("net1", net1), ("net2", net2), ("spec", spec))}
     r = _call("open_session", **paths, property={"kind": "epsilon", "epsilon": float(epsilon)}, csb=bool(csb),
-              fallback=bool(fallback))
+              fallback=bool(fallback), lp_relax=bool(lp_relax))
     if "error" not in r:
         _state["session"] = {**paths, "epsilon": epsilon, "spec_hash": r.get("spec_hash")}
         if os.environ.get("VDA_SANDBOX", "1") != "0":
@@ -161,6 +164,18 @@ def split_lin(node: int, layer: int, terms: list[list], t: float, rationale: str
     layer (affine in the input) this is an arbitrary oblique cut of the input box. Regions are unchanged."""
     return _call("split_lin", node=int(node), layer=int(layer), terms=[[str(v), int(j), float(a)] for v, j, a in terms],
                  t=float(t), rationale=_rat(rationale))
+
+
+@mcp.tool()
+def trial_actions(node: int, actions: list[dict], max_nodes: int = 2000, baseline: bool = True,
+                  max_seconds: float = 600.0) -> Any:
+    """Dry run: for each candidate expansion of the open leaf `node`, apply it, finish every resulting leaf with
+    VeryDiff's best-first search (≤ max_nodes checks) and report the checks needed; then undo it. Actions:
+    {"kind": "split", "dim": d, "cut": c?} | {"kind": "split_relu", "layer": k, "neuron": j, "var": "z1|z2|d", "t": t}
+    | {"kind": "phase4", "layer": k, "neuron": j}. baseline=True adds plain auto_expand. Proof state unchanged;
+    cost is reported as trial propagations. Requires a session without lemmas."""
+    return _call("trial_actions", node=int(node), actions=actions, max_nodes=int(max(1, min(max_nodes, 200000))),
+                 baseline=bool(baseline), max_seconds=float(max(1.0, min(max_seconds, 3600.0))))
 
 
 @mcp.tool()

@@ -5,8 +5,21 @@ The agent can only take sound proof-tree actions inside a trusted kernel (LCF st
 is a certificate that an independent checker replays. Exploration (sampling, local VeryDiff runs,
 weight analysis, LPs) happens in a network-less Docker sandbox and never counts as evidence.
 
-MVP scope: **ε-equivalence** (max_i |N1(x)_i − N2(x)_i| ≤ ε on a VNNLIB input box). VeryDiff's
-`src/` is used as-is; all code lives in `agent/`.
+Scope: **ε-equivalence** (max_i |N1(x)_i − N2(x)_i| ≤ ε on a VNNLIB input box). All code lives in
+`agent/`; VeryDiff's `src/` has two small, separately committed changes (see "Changes to VeryDiff").
+
+**Documentation**
+
+| Document | Contents |
+|---|---|
+| [`docs/mnist_proof.md`](docs/mnist_proof.md) | the MNIST proof (118,707 → 118 propagations): variants, split counts, times, how it works |
+| [`docs/proof_strategy.md`](docs/proof_strategy.md) | lessons learned, playbook, which tools to use for what |
+| [`docs/mcp_tools.md`](docs/mcp_tools.md) | reference of all MCP tools (generated from the docstrings) |
+| [`docs/certificate_format.md`](docs/certificate_format.md) | certificate JSON format and what the checker verifies |
+| [`docs/examples/mnist68_proof.jl`](docs/examples/mnist68_proof.jl) | the MNIST proof script |
+
+Logs, certificates and experiment scripts are on the branch `agent/mcp-prototype-experiments`
+(index: `agent/experiments/README.md`).
 
 ```
 Claude Code / headless harness
@@ -22,7 +35,8 @@ agent/checker/check_certificate.jl   (separate process; does not use the kernel'
 
 | Path | Contents |
 |---|---|
-| `julia/VeryDiffAgentKernel/src/` | `Regions.jl` (exact boxes, outward task conversion), `Props.jl` (property adapters), `ProofTree.jl`, `Session.jl` (spec hash, derived closure), `Kernel.jl` (seeded copy of `propagate!`), `Actions.jl`, `AutoExpand.jl`, `Lemmas.jl`, `Inspect.jl` (read-only tools, `read_weights`, exports), `Eval.jl`, `Certificate.jl`, `RPC.jl` |
+| `julia/VeryDiffAgentKernel/src/` | `Regions.jl` (exact boxes, outward task conversion), `Props.jl` (property adapters), `ProofTree.jl`, `Session.jl` (spec hash, derived closure), `Kernel.jl` (seeded copy of `propagate!`: cache seeding, contraction, dual-tightened bounds, infeasibility), `LP.jl` (weak-duality evidence, LP-relaxation rows), `Actions.jl` (check, input/hidden/relational splits), `AutoExpand.jl`, `Lemmas.jl`, `Planning.jl` (`trial_actions`), `Inspect.jl` (read-only tools, `read_weights`, `network_diff_structure`, `difference_attribution`, exports), `Eval.jl`, `Certificate.jl`, `RPC.jl` |
+| `docs/` | proof write-up, strategy, MCP tool reference, certificate format, example proof script |
 | `julia/VeryDiffAgentKernel/test/runtests.jl` | unit, differential, lemma, cache-hygiene, checker-mutation and RPC tests |
 | `checker/check_certificate.jl` | independent replay checker |
 | `server/verydiff_mcp/` | MCP server, kernel client, sandbox, exports |
@@ -69,13 +83,8 @@ Latency (this container, 4 vCPU): kernel start + warm-up ≈ 60–75 s before th
 
 ### Tools
 
-Proof actions: `open_session`, `check`, `split` (cut / k-way `cuts` / `dim_block`), `auto_expand`,
-`introduce_lemma`, `prove_lemma`, `retract_lemma`, `refute_lemma`, `prune`, `submit_counterexample`,
-`export_certificate`.
-Inspection (read-only): `session_status`, `list_layers`, `list_open_leaves`, `get_node`,
-`inspect_layer`, `output_bounds`, `split_scores`, `cache_bounds`, `eval_point`, `read_weights`.
-Sandbox: `sandbox_exec`, `sandbox_write_file`, `export_to_sandbox` (tree | regions | bounds | generators,
-JSON + NPZ), `sandbox_reset`.
+35 MCP tools in five groups — proof actions (incl. hidden and relational case splits), lemmas, dry runs,
+inspection (incl. program-reading instruments) and sandbox. See [`docs/mcp_tools.md`](docs/mcp_tools.md).
 
 ## Kernel design (short)
 
@@ -100,7 +109,16 @@ JSON + NPZ), `sandbox_reset`.
 * **Closure is derived**: closed leaf, or all children closed and (for `assume`) the lemma proven.
   SAFE ⟺ main root closed. There is no close/drop action. UNSAFE needs a concretely re-evaluated cex.
 * **Guards:** a node is never closed if a cache becomes inconsistent (lower > upper, e.g. from a false
-  lemma) or if NaN appears in bounds (see findings below).
+  lemma) or if NaN appears in bounds (see findings below), except as an explicit *infeasible* closure: a ReLU
+  layer whose bounds are empty by more than a relative 10⁻⁹ (or a contraction without solution) proves that the
+  node's concrete set is empty.
+* **Case splits on hidden quantities** (`split_relu`, `split_lin`): both children keep the region and carry the
+  constraint (v ≤ t / v ≥ t, or a linear combination). Every propagation below uses it for contraction of the
+  shared noise box (all live zonotopes are rescaled), cache seeding, dual-tightened bounds at all later ReLU
+  layers (closed-form single-row weak duality), z1 = z2 + d consistency tightening and as rows of the final LP.
+* **LP evidence** (weak duality): a leaf may close with multipliers λ ≥ 0 for rows from lemmas, split
+  constraints and (option `lp_relax`) LP-relaxation rows (triangles, identities, differential chords). GLPK only
+  proposes λ; the bound is recomputed from λ by kernel and checker.
 
 ## Cost metrics
 
@@ -119,7 +137,14 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 * Spec binding: `spec_hash = sha256(net1, net2, spec, canonical property JSON, git tree hash of VeryDiff's src/)`
   (length-prefixed parts; `-dirty` suffix if `src/` has local changes).
 
-## Findings about VeryDiff (documented, `src/` untouched)
+## Changes to VeryDiff (`src/`, separate commits)
+
+* `d9979d3` "ReLU diff transformer: compute phase cases from cached bounds" (finding 2 below).
+* `549caf4d` "Optional monotone differential ReLU relaxation (flag ONE_SIDED_DIFF_FALLBACK, default off)": a unit
+  whose fresh bounds give any_any but whose tighter cached bounds give a one-sided case keeps the d-based
+  relaxation (sound since min(0, d) ≤ ReLU(z1) − ReLU(z2) ≤ max(0, d)). Kernel option `fallback`.
+
+## Findings about VeryDiff
 
 1. **NaN ⇒ "SAFE" in the ε property.** `get_epsilon_property` tests `distance_bound > epsilon`; a NaN
    bound fails that test and the property reports success. NaN can arise in the ReLU transformer when a
@@ -145,7 +170,7 @@ asks the agent to minimise both nodes and checks (`min-nodes` is kept as an alia
 
 | Test | Result |
 |---|---|
-| `julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | pass (regions, seeding incl. uninitialised cache, derived closure, differential vs CLI on all 5 instances, k-way/partial, UNSAFE, lemmas incl. refutation/retraction, cache hygiene, 8 checker mutations, extension stubs, RPC) |
+| `VERYDIFF_NO_GUROBI=1 julia --project=agent/julia/VeryDiffAgentKernel agent/julia/VeryDiffAgentKernel/test/runtests.jl` | 6796 pass, ≈ 5 min (regions, seeding, derived closure, differential vs CLI, k-way/partial, UNSAFE, lemmas, LP tightening, ReLU/threshold/relational splits with sampled soundness of the tightened caches, one-sided fallback, LP-relaxation rows valid at the witness, cache hygiene, checker mutations, RPC) |
 | `python3 agent/tests/test_soundness.py` | 0 violations in ≈19.7 M sampled points over 4 SAFE certificates (one with a proven lemma) |
 | `python3 agent/tests/test_e2e.py [--sandbox]` | MCP → kernel → certificate → checker ACCEPT for SAFE and UNSAFE; sandbox has no network, `/exports` read-only, VeryDiff CLI runs inside |
 
@@ -167,5 +192,6 @@ Differential node counts match VeryDiff's CLI exactly (e.g. `safe_hard`: 3763 no
   - Concrete semantics (`violates`) for Top-1/δ-Top-1 and the robustness pair (x, x′).
   - VeryDiff's Top-1 property uses a global `FIRST_ROUND`/`TOP1_FOUND_CONCRETE_DELTA` state that must be
     reset per check for replayability.
-* Other non-goals still open: halfspace / ReLU-phase splits, arbitrary generator splits, outward-rounded
-  arithmetic, multithreading.
+* Other open items: Farkas certificates for jointly infeasible constraint sets, LP-tightened intermediate
+  bounds for selected units, arbitrary generator splits, outward-rounded arithmetic, multithreading.
+  GLPK can be slow on degenerate relaxation LPs (2 s time limit per LP; a timeout only drops the LP evidence).

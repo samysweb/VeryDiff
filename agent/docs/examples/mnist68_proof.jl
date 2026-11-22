@@ -19,7 +19,7 @@
 # d = z1 − z2 / t = a1 − a2, differential chords min(0,d) ≤ t ≤ max(0,d)); this brings the proof from 24,802 to
 # 124 propagations. LP_RELAX=0 reproduces the 24,802-propagation proof.
 using VeryDiffAgentKernel
-d = get(ENV, "INST", "/tmp/claude-0/mnist")
+d = get(ENV, "INST", "mnist68")      # directory with net1.onnx, net2.onnx, spec.vnnlib
 S = open_session("$d/net1.onnx", "$d/net2.onnx", "$d/spec.vnnlib", Dict("kind" => "epsilon", "epsilon" => 1.0); fallback=true,
                  lp_relax=get(ENV, "LP_RELAX", "1") == "1")
 cuts = [0.55, 0.65, 0.75, 0.85, 0.95, 0.975, 1.0, 1.025, 1.05]
