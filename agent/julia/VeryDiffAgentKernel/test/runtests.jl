@@ -540,6 +540,43 @@ end
     end
 end
 
+@testset "Relational (oblique) splits" begin
+    name = "safe_hard"
+    S = open_session(INST[name]["net1"], INST[name]["net2"], INST[name]["spec"],
+                     Dict("kind" => "epsilon", "epsilon" => INST[name]["epsilon"]); fallback=true)
+    check!(S, 1)
+    k = S.relu_layers[1]
+    terms = [("z1", 1, 1.0), ("z1", 2, -0.5), ("z2", 3, 0.25)]
+    ev(x) = (e = eval_point(S, x)["hidden_preact"][string(k)]; e["n1"][1] - 0.5 * e["n1"][2] + 0.25 * e["n2"][3])
+    xc = (S.root_box.lo .+ S.root_box.hi) ./ 2
+    t = ev(xc)
+    kids = split_lin!(S, 1, k, terms, t)["children"]
+    rng = MersenneTwister(5); nin = 0
+    for c in kids
+        check!(S, c)
+        n = S.nodes[c]; isnothing(n.cache_out) && continue
+        for _ in 1:300
+            x = S.root_box.lo .+ rand(rng, length(S.root_box.lo)) .* (S.root_box.hi .- S.root_box.lo)
+            (c == kids[1] ? ev(x) <= t : ev(x) >= t) || continue
+            nin += 1
+            ep = eval_point(S, x)
+            for kk in S.relu_layers
+                bc = n.cache_out.bounds_cache[kk]
+                h1 = ep["hidden_preact"][string(kk)]["n1"]; h2 = ep["hidden_preact"][string(kk)]["n2"]
+                @test all(bc.lower₁ .- 1e-9 .<= h1 .<= bc.upper₁ .+ 1e-9) && all(bc.lower₂ .- 1e-9 .<= h2 .<= bc.upper₂ .+ 1e-9)
+            end
+        end
+    end
+    @test nin > 100
+    for c in kids
+        S.nodes[c].kind == :open && auto_expand!(S, c; max_nodes=100000)
+    end
+    @test session_verdict(S) == "SAFE"
+    @test startswith(check_cert(S, name), "ACCEPT")
+    @test startswith(check_cert(S, name; mutate=c -> begin
+        e = only(x for x in c["nodes"] if x[4] == "s" && get(x[5], "b", "") == "lin"); e[5]["terms"] = [] end), "REJECT")
+end
+
 @testset "Checker mutations" begin
     S = open_case("safe_split")
     auto_expand!(S, S.obligations[S.main_obligation].root; max_nodes=10_000)

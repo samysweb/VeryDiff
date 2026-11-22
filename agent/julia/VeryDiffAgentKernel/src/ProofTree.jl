@@ -26,13 +26,14 @@ mutable struct Node
     cex::Bool
     constraints::Vector{LemmaStatement}   # case-split constraints on this node's concrete set (inherited)
     bsplit::Union{Nothing,Tuple{Int,String,Int}}  # for split_block == :relu: (relu layer, var d|z1|z2, neuron)
+    lsplit::Union{Nothing,Tuple{Int,Vector{Tuple{String,Int,Float64}}}}  # split_block == :lin: (relu layer, terms)
 end
 
 function Node(id, obligation, parent, side, region, lemmas, cache_in, work_share, depth, created_by;
               distance_bound=Inf, verification_status=nothing)
     return Node(id, obligation, parent, side, region, :open, :primary, 0, NaN, 0, nothing, Int[],
         copy(lemmas), nothing, "", created_by, cache_in, nothing, deepcopy(verification_status),
-        work_share, depth, distance_bound, false, LemmaStatement[], nothing)
+        work_share, depth, distance_bound, false, LemmaStatement[], nothing, nothing)
 end
 
 is_leaf(n::Node) = n.kind == :open || n.kind == :closed

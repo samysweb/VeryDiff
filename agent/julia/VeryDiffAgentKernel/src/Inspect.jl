@@ -150,7 +150,8 @@ function get_node(S::Session, id::Int)
         "children" => n.children, "lemmas_in_scope" => n.lemmas_in_scope, "last_check" => n.last_check,
         "rationale" => n.rationale, "created_by" => string(n.created_by), "volume" => r6(n.work_share),
         "distance_bound" => r6(n.distance_bound), "has_cache_out" => !isnothing(n.cache_out))
-    n.kind == :split && (d["split"] = n.split_block == :relu ?
+    n.kind == :split && (d["split"] = n.split_block == :lin ?
+        Dict("block" => "lin", "layer" => n.lsplit[1], "n_terms" => length(n.lsplit[2]), "t" => n.split_cut) : n.split_block == :relu ?
         Dict("block" => "relu", "layer" => n.bsplit[1], "var" => n.bsplit[2], "neuron" => n.bsplit[3], "t" => n.split_cut) :
         Dict("block" => string(n.split_block), "dim" => n.split_dim, "cut" => n.split_cut))
     isempty(n.constraints) || (d["constraints"] = constraint_summary.(n.constraints))
@@ -168,6 +169,7 @@ function inspect_propagation(S::Session, n::Node; stop=nothing)
 end
 
 constraint_summary(st::LemmaStatement) =
+    !isempty(st.terms) ? "Σ $(length(st.terms)) terms ≤ $(st.rhs) @ReLU $(st.relu_layer)" :
     !isnothing(st.n1lo) ? "z1[$(st.neurons[1])] in [$(st.n1lo[1]), $(st.n1hi[1])] @ReLU $(st.relu_layer)" :
     !isnothing(st.n2lo) ? "z2[$(st.neurons[1])] in [$(st.n2lo[1]), $(st.n2hi[1])] @ReLU $(st.relu_layer)" :
                           "d[$(st.neurons[1])] in [$(st.dlo[1]), $(st.dhi[1])] @ReLU $(st.relu_layer)"

@@ -23,6 +23,9 @@ function cert_nodes(S::Session)
         if n.kind == :split && n.split_block == :relu
             push!(out, [id, n.parent, n.side, "s", Dict("b" => "relu", "k" => n.bsplit[1], "v" => n.bsplit[2], "j" => n.bsplit[3],
                                                         "c" => n.split_cut, "p" => p), r])
+        elseif n.kind == :split && n.split_block == :lin
+            push!(out, [id, n.parent, n.side, "s", Dict("b" => "lin", "k" => n.lsplit[1], "terms" => [[v, j, a] for (v, j, a) in n.lsplit[2]],
+                                                        "c" => n.split_cut, "p" => p), r])
         elseif n.kind == :split
             push!(out, [id, n.parent, n.side, "s", Dict("b" => string(n.split_block), "d" => n.split_dim, "c" => n.split_cut, "p" => p), r])
         elseif n.kind == :assume

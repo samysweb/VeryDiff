@@ -229,7 +229,7 @@ function validate_tree(S::Session)
         if n.kind == :split
             length(n.children) == 2 || kerr("internal", "split node $id needs 2 children")
             c1, c2 = S.nodes[n.children[1]], S.nodes[n.children[2]]
-            if n.split_block == :relu
+            if n.split_block in (:relu, :lin)
                 (c1.region == n.region && c2.region == n.region) || kerr("internal", "relu split node $id changes the region")
                 (length(c1.constraints) == length(c2.constraints) == length(n.constraints) + 1 &&
                  c1.constraints[1:end-1] == n.constraints && c2.constraints[1:end-1] == n.constraints) ||

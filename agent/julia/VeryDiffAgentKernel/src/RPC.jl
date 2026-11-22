@@ -45,6 +45,8 @@ const METHODS = Dict{String,Function}(
     end,
     "split_relu" => p -> split_relu!(current(), Int(p["node"]), Int(p["layer"]), Int(p["neuron"]);
                            var=opt(p, "var", "z1"), t=Float64(opt(p, "t", 0.0)), rationale=opt(p, "rationale", "")),
+    "split_lin" => p -> split_lin!(current(), Int(p["node"]), Int(p["layer"]), p["terms"], Float64(p["t"]);
+                           rationale=opt(p, "rationale", "")),
     "network_diff_structure" => p -> network_diff_structure(current(); tol=Float64(opt(p, "tol", 1e-3))),
     "difference_attribution" => p -> difference_attribution(current(), Int(p["node"]), Int(p["layer"]), Int(p["row"]);
                            n_samples=Int(opt(p, "n_samples", 20000)), top_k=Int(opt(p, "top_k", 15)), sign=Int(opt(p, "sign", 1))),
@@ -114,7 +116,7 @@ sanitize(x::Tuple) = Any[sanitize(v) for v in x]
 sanitize(x) = x
 
 # Actions allowed inside `batch` (no session/certificate/export side effects).
-const BATCHABLE = Set(["check", "split", "split_relu", "relu_scores", "network_diff_structure", "difference_attribution", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "introduce_relational_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
+const BATCHABLE = Set(["check", "split", "split_relu", "split_lin", "relu_scores", "network_diff_structure", "difference_attribution", "auto_expand", "introduce_lemma", "introduce_phase_lemma", "introduce_relational_lemma", "trial_lemma", "prove_lemma", "retract_lemma",
     "refute_lemma", "prune", "submit_counterexample", "session_status", "list_open_leaves", "get_node",
     "output_bounds", "split_scores", "cache_bounds", "inspect_layer", "read_weights", "eval_point"])
 

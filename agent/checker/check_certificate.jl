@@ -220,6 +220,9 @@ function contract!(P, Zi, seeds::Vector{Seed})
         isnothing(s.n2) || push!(rs, (row(Zi.Z₂, j, off, m)..., s.n2[1][k], s.n2[2][k]))
         (isfinite(s.dlo[k]) || isfinite(s.dhi[k])) && push!(rs, (row(Zi.∂Z, j, off, m)..., s.dlo[k], s.dhi[k]))
     end
+    for s in seeds
+        isempty(s.terms) || push!(rs, (combo(Zi, s.terms, off, m)..., -Inf, s.rhs))
+    end
     for _ in 1:2, (c, g, l, u) in rs
         tighten!(lo, hi, g, u - c) || return true
         tighten!(lo, hi, -g, c - l) || return true
@@ -478,7 +481,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
         ch = children[id]
         if n.kind == "s"
             need(length(ch) == 2 && Set(nodes[c].side for c in ch) == Set([1, 2]), "split node $id needs a lower and an upper child")
-            need(n.p["b"] in ("primary", "relu"), "split block $(n.p["b"]) not supported")
+            need(n.p["b"] in ("primary", "relu", "lin"), "split block $(n.p["b"]) not supported")
         elseif n.kind == "a"
             need(length(ch) == 1 && nodes[ch[1]].side == 0, "assume node $id needs exactly one child")
             L = Int(n.p["l"])
@@ -599,6 +602,17 @@ function check(cert_path, net1, net2, specf; verbose=false)
                     sd = v == "d"  ? Seed([j], [lo_], [hi_], nothing, nothing, Tuple{String,Int,Float64}[], Inf) :
                          v == "z1" ? Seed([j], [-Inf], [Inf], ([lo_], [hi_]), nothing, Tuple{String,Int,Float64}[], Inf) :
                                      Seed([j], [-Inf], [Inf], nothing, ([lo_], [hi_]), Tuple{String,Int,Float64}[], Inf)
+                    push!(stack, (ch, deepcopy(out_cache), copy(scope), vcat(cons, [(k, sd)])))
+                end
+            elseif n.kind == "s" && n.p["b"] == "lin"
+                k = Int(n.p["k"]); t = Float64(n.p["c"])
+                need(k in relu && isfinite(t), "lin split node $id malformed")
+                tr = [(String(x[1]), Int(x[2]), Float64(x[3])) for x in n.p["terms"]]
+                need(!isempty(tr) && all(x -> x[1] in ("z1", "z2", "d") && x[2] >= 1 && isfinite(x[3]), tr), "lin split node $id: bad terms")
+                for ch in children[id]
+                    region[ch] = (copy(lo), copy(hi))
+                    sd = nodes[ch].side == 1 ? Seed(Int[], Float64[], Float64[], nothing, nothing, tr, t) :
+                         Seed(Int[], Float64[], Float64[], nothing, nothing, [(v, j, -a) for (v, j, a) in tr], -t)
                     push!(stack, (ch, deepcopy(out_cache), copy(scope), vcat(cons, [(k, sd)])))
                 end
             elseif n.kind == "s"

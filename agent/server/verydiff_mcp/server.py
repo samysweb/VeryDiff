@@ -155,6 +155,15 @@ def split_relu(node: int, layer: int, neuron: int, var: str = "z1", t: float = 0
 
 
 @mcp.tool()
+def split_lin(node: int, layer: int, terms: list[list], t: float, rationale: str = "") -> Any:
+    """Relational case split: child 1 assumes Σ a·v ≤ t, child 2 assumes Σ a·v ≥ t, with terms [[var, neuron, a], ...]
+    over pre-activations var ∈ {z1, z2, d} (1-based neurons) at the input of ReLU layer `layer`. On the first ReLU
+    layer (affine in the input) this is an arbitrary oblique cut of the input box. Regions are unchanged."""
+    return _call("split_lin", node=int(node), layer=int(layer), terms=[[str(v), int(j), float(a)] for v, j, a in terms],
+                 t=float(t), rationale=_rat(rationale))
+
+
+@mcp.tool()
 def network_diff_structure(tol: float = 1e-3) -> Any:
     """How N2 differs from N1, per dense layer (1-based units): units/inputs whose weights differ by > tol, units
     knocked out (zero weight row) in either network and their bias, inputs ignored, and the max weight/bias
