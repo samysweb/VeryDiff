@@ -61,3 +61,11 @@
   ε=0.05: proof 2405, main 1483→985 (net −1907); ε=0.02: 2405, 2209→1435 (−1631);
   ε=0.01: 2405, 2869→2057 (−1593); ε=0.005: 2405, 3875→2985 (−1515). Proof cost is independent of ε; the
   saving grows only slowly (498→890) because the main tree grows roughly logarithmically in 1/ε.
+* MNIST (verydiff-experiments `mnist-prune`): `mnist_relu_3_100` vs `_pruned5`, `mnist_68_local_15` (15 free
+  pixels), ε = 1.0. Old logs: SAFE in 71k zonotopes (120 s timeout runs); current VeryDiff CLI: SAFE, 118,707
+  zonotopes, 193 s. Scripted kernel run: identical tree, 118,707 nodes / 118,708 checks, checker ACCEPT
+  (certificate 22 MB). Opus (min-cost, trial_lemma, sandbox): SAFE, 118,707 nodes / 118,767 checks, checker
+  ACCEPT, 36 tool calls, 16.6 min, SDK-reported $0.75. Opus: true max |Δ| ≈ 0.937 vs ε = 1 (thin margin);
+  per-neuron bounds are already near the sampled ranges, the looseness is lost correlation between neurons at
+  the output (width 9.2 vs 3.8 sampled), which per-neuron interval/phase lemmas cannot express; a one-unit phase
+  lemma dry run was still open after 465 nodes. No lemmas used.
