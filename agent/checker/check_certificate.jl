@@ -180,6 +180,74 @@ function seed!(bc::BoundsCache, n::Int, seeds::Vector{Seed})
     end
 end
 
+# ---------------------------------------------------------------- contraction (re-implemented)
+"""g·ε ≤ rhs on the box [lo,hi]; false if infeasible."""
+function tighten!(lo, hi, g, rhs)
+    isfinite(rhs) || return true
+    r = rhs + 1e-12 * (abs(rhs) + sum(abs, g) + 1.0)
+    part = [x > 0 ? x * lo[i] : x * hi[i] for (i, x) in enumerate(g)]
+    s = sum(part)
+    s > r && return false
+    for i in eachindex(g)
+        x = g[i]; abs(x) < 1e-300 && continue
+        b = (r - (s - part[i])) / x
+        if x > 0
+            b = nextfloat(nextfloat(b)) + 1e-12 * abs(b); b < hi[i] && (hi[i] = max(b, lo[i]))
+        else
+            b = prevfloat(prevfloat(b)) - 1e-12 * abs(b); b > lo[i] && (lo[i] = min(b, hi[i]))
+        end
+    end
+    return true
+end
+
+"""Returns true if infeasible; otherwise rescales all live zonotopes of P in place."""
+function contract!(P, Zi, seeds::Vector{Seed})
+    off, m = layout([Zi.∂Z, Zi.Z₁, Zi.Z₂])
+    lo = fill(-1.0, m); hi = fill(1.0, m)
+    rs = Any[]
+    for s in seeds, (k, j) in enumerate(s.neurons)
+        isnothing(s.n1) || push!(rs, (row(Zi.Z₁, j, off, m)..., s.n1[1][k], s.n1[2][k]))
+        isnothing(s.n2) || push!(rs, (row(Zi.Z₂, j, off, m)..., s.n2[1][k], s.n2[2][k]))
+        (isfinite(s.dlo[k]) || isfinite(s.dhi[k])) && push!(rs, (row(Zi.∂Z, j, off, m)..., s.dlo[k], s.dhi[k]))
+    end
+    for _ in 1:2, (c, g, l, u) in rs
+        tighten!(lo, hi, g, u - c) || return true
+        tighten!(lo, hi, -g, c - l) || return true
+    end
+    any(lo .> hi) && return true
+    sub = Dict{Tuple{Int,Int},Tuple{Float64,Float64}}()
+    for (id, o) in off
+        w = minimum([v for v in values(off) if v > o]; init=m) - o
+        for c in 1:w
+            i = o + c
+            lo[i] == -1.0 && hi[i] == 1.0 && continue
+            mid = lo[i] / 2 + hi[i] / 2
+            sub[(id, c)] = (mid, nextfloat(max(hi[i] - mid, mid - lo[i])))
+        end
+    end
+    isempty(sub) && return false
+    Zs = Any[]; ids = Set{UInt}()
+    for z in P.zono_storage.zonotopes
+        (z === nothing || z.zonotope === nothing) && continue
+        for Z in (z.zonotope.Z₁, z.zonotope.Z₂, z.zonotope.∂Z)
+            objectid(Z) in ids || (push!(ids, objectid(Z)); push!(Zs, Z))
+        end
+    end
+    for Z in Zs, (bi, id) in enumerate(collect(Z.generator_ids)), c in 1:size(Z.Gs[bi], 2)
+        haskey(sub, (id, c)) && (Z.c .+= sub[(id, c)][1] .* Z.Gs[bi][:, c])
+    end
+    gs = Set{UInt}()
+    for Z in Zs, (bi, id) in enumerate(collect(Z.generator_ids))
+        G = Z.Gs[bi]
+        objectid(G) in gs && continue
+        push!(gs, objectid(G))
+        for c in 1:size(G, 2)
+            haskey(sub, (id, c)) && (G[:, c] .*= sub[(id, c)][2])
+        end
+    end
+    return false
+end
+
 """Empty-interval test (independent re-implementation of the kernel's rule)."""
 function empty_somewhere(bc::BoundsCache)
     for (lo, hi) in ((bc.lower₁, bc.upper₁), (bc.lower₂, bc.upper₂), (bc.∂lower, bc.∂upper))
@@ -193,7 +261,8 @@ function empty_somewhere(bc::BoundsCache)
 end
 
 """Propagate; returns (Zin, Zout_or_stop_input, cache, ok_guards, P, infeasible)."""
-function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vector{Seed}}, stop; csb::Bool=false)
+function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vector{Seed}}, stop; csb::Bool=false,
+                   cons::Dict{Int,Vector{Seed}}=Dict{Int,Vector{Seed}}())
     tb = deepcopy(cache_in)
     task = task_for(lo, hi, active, tb)
     P = PropState(true)
@@ -211,6 +280,7 @@ function propagate(N, lo, hi, active, cache_in::TaskBounds, seeds::Dict{Int,Vect
         first_pass(P) && configure_first_usage!(L.layer_idx, ins)
         zonos_initialized(P, get_outputs(L)) || init_layer!(P, L, ins, get_outputs(L))
         izs = get_zonotope.(ins)
+        haskey(cons, L.layer_idx) && contract!(P, izs[1], cons[L.layer_idx]) && return nothing, nothing, tb, false, P, true
         outs = get_zonos_at_pos(get_outputs(L), P)
         bc = get!(() -> BoundsCache(), tb.bounds_cache, L.layer_idx)
         if haskey(seeds, L.layer_idx)
@@ -397,16 +467,18 @@ function check(cert_path, net1, net2, specf; verbose=false)
             for L in scope
                 push!(get!(seeds, lemmas[L].layer, Seed[]), lemmas[L].seed)
             end
+            cdict = Dict{Int,Vector{Seed}}()
             for (k, sd) in cons
                 push!(get!(seeds, k, Seed[]), sd)
+                push!(get!(cdict, k, Seed[]), sd)
             end
             if n.kind == "c" && get(n.p, "inf", false) == true
-                _, _, _, _, _, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
+                _, _, _, _, _, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb, cons=cdict)
                 verified_leaf[id] = inf
                 verbose && println(stderr, "leaf $id (infeasible): ", inf)
                 continue
             elseif n.kind == "c"
-                Zin, Z, _, ok, P, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
+                Zin, Z, _, ok, P, inf = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb, cons=cdict)
                 if inf
                     verified_leaf[id] = false
                     continue
@@ -460,7 +532,7 @@ function check(cert_path, net1, net2, specf; verbose=false)
             end
             out_cache = cache
             if n.p["p"] == true
-                _, _, out_cache, _ = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb)
+                _, _, out_cache, _ = propagate(N, lo, hi, active, cache, seeds, adapter_stop; csb=csb, cons=cdict)
             end
             if n.kind == "s" && n.p["b"] == "relu"
                 k = Int(n.p["k"]); v = String(n.p["v"]); j = Int(n.p["j"]); t = Float64(n.p["c"])
