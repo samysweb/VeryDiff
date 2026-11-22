@@ -1,0 +1,2 @@
+instance,agent_verdict,agent_wall_s,auto_nodes,cert_bytes,checker,cost_usd,epsilon,expected,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,nodes,proof_actions
+safe_hard,SAFE,637.3,3400,354428,ACCEPT SAFE nodes=3441 lemmas=0,0.9056865000000002,0.339949,SAFE?,4.259,0,0,0,85,41,3441,61

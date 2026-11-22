@@ -1,0 +1,6 @@
+instance,agent_verdict,agent_wall_s,auto_nodes,baseline_verdict,baseline_wall_s,cert_bytes,checker,cost_usd,epsilon,expected,kernel_seconds,lemmas_proposed,lemmas_proven,lemmas_used,llm_actions,manual_nodes,nodes,proof_actions
+safe_split,SAFE,66.1,28,SAFE,39.5,2922,ACCEPT SAFE nodes=29 lemmas=0,0.0,0.0225695,SAFE,2.711,0,0,0,6,1,29,2
+unsafe,UNSAFE,66.3,0,UNSAFE,40.2,924,ACCEPT UNSAFE dist=0.03902764597584951 eps=0.0345313,0.0,0.0345313,UNSAFE,2.741,0,0,0,4,1,1,1
+safe_hard,SAFE,67.6,3762,SAFE,40.0,357745,ACCEPT SAFE nodes=3763 lemmas=0,0.0,0.339949,SAFE?,5.06,0,0,0,8,1,3763,3
+safe_easy,SAFE,67.3,0,SAFE,37.0,789,ACCEPT SAFE nodes=1 lemmas=0,0.0,0.0098241,SAFE,2.808,0,0,0,4,1,1,1
+safe_mid,SAFE,66.3,144,SAFE,39.2,12959,ACCEPT SAFE nodes=145 lemmas=0,0.0,0.0283326,SAFE?,2.821,0,0,0,6,1,145,2

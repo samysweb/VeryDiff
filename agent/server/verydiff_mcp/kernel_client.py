@@ -44,13 +44,22 @@ class KernelClient:
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
+        self._start_lock = threading.RLock()
+        self.ready = False
         self.startup_seconds: float | None = None
         self.warmup_seconds: float | None = None
 
     # ------------------------------------------------------------------ lifecycle
     def start(self, timeout: float = 600.0) -> None:
-        if self.proc and self.proc.poll() is None:
+        with self._start_lock:
+            self._start(timeout)
+
+    def _start(self, timeout: float) -> None:
+        if self.proc and self.proc.poll() is None and self.ready:
             return
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()      # half-started (e.g. failed warm-up): restart cleanly
+        self.ready = False
         t0 = time.time()
         cmd = [self.julia, f"--project={self.project}", "--startup-file=no"]
         if self.sysimage:
@@ -68,8 +77,9 @@ class KernelClient:
             raise RuntimeError(f"kernel failed to start (see {self.log_path})")
         self.startup_seconds = time.time() - t0
         if self.warmup_enabled:
-            r = self.call("warmup", timeout=timeout)
+            r = self._rpc("warmup", None, timeout)
             self.warmup_seconds = r.get("warmup_seconds")
+        self.ready = True
 
     def _reader(self) -> None:
         assert self.proc and self.proc.stdout
@@ -104,9 +114,13 @@ class KernelClient:
         """Send one request and wait for its response. Responses to earlier timed-out
         requests (stale ids) are discarded."""
         timeout = timeout or float(os.environ.get("VDA_CALL_TIMEOUT", "900"))
+        self.start()          # blocks while a (background) start + warm-up is in progress
+        return self._rpc(method, params, timeout)
+
+    def _rpc(self, method: str, params: dict | None, timeout: float):
         with self._lock:
             if not self.alive():
-                self.start()
+                raise RuntimeError(f"kernel process is not running (see {self.log_path})")
             rid = next(self._ids)
             assert self.proc and self.proc.stdin
             self.proc.stdin.write(json.dumps({"id": rid, "method": method, "params": params or {}}) + "\n")
